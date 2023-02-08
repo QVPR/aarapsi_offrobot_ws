@@ -1,3 +1,5 @@
 build/
 devel/
 install/
+aarapsi_offrobot_ws.code-workspace
+.vscode/
