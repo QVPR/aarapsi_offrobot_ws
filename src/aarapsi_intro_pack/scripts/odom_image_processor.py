@@ -2,7 +2,7 @@
 
 import rospy
 from nav_msgs.msg import Odometry
-from sensor_msgs.msg import Image, CompressedImage
+from sensor_msgs.msg import CompressedImage#, Image
 from cv_bridge import CvBridge
 import cv2 as cv
 import numpy as np
@@ -31,29 +31,30 @@ class mrc: # main ROS class
 
         # flags to denest main loop:
         self.new_img0   = False
+        self.new_odom   = False
 
     def odom_callback(self, msg):
     # /odometry/filtered (nav_msgs/Odometry)
     # Store new robot position
 
-        self.robot_x = round(msg.pose.pose.position.x, 3)
-        self.robot_y = round(msg.pose.pose.position.y, 3)
-        self.robot_z = round(msg.pose.pose.position.z, 3)
+        self.robot_x    = round(msg.pose.pose.position.x, 3)
+        self.robot_y    = round(msg.pose.pose.position.y, 3)
+        self.robot_z    = round(msg.pose.pose.position.z, 3)
+        self.new_odom   = True
 
     def img0_callback(self, msg):
-    # /ros_indigosdk_occam/image0 (sensor_msgs/Image)
+    # /ros_indigosdk_occam/image0/compressed (sensor_msgs/CompressedImage)
     # Store newest image received
 
         self.store_img0 = self.bridge.compressed_imgmsg_to_cv2(msg, "bgr8")
         # alternative: self.store_img0 = self.bridge.imgmsg_to_cv2(msg, "bgr8")
-        self.new_img0 = True
+        self.new_img0   = True
 
 def odom_image_processor():
     #!# Variables to Update
-    set_name = "set_1" # Name of folder that will house generated information
-
-    nmrc    = mrc() # make new class instance
-    path_for_dataset = rospkg.RosPack().get_path('aarapsi_intro_pack') + "/data/" + set_name
+    set_name            = "set_1" # Name of folder that will house generated information
+    nmrc                = mrc() # make new class instance
+    path_for_dataset    = rospkg.RosPack().get_path('aarapsi_intro_pack') + "/data/" + set_name
 
     # Handle checks for folder construction:
     rospy.loginfo("Attempting to construct data storage system")
@@ -63,8 +64,8 @@ def odom_image_processor():
         rospy.logerr("Error: parent directory does not exist. Exitting...")
         return
     except FileExistsError:
-        rospy.logwarn("Directory already exists - this will overwrite existing data! Pausing in case of error (5s)...")
-        time.sleep(5)
+        rospy.logwarn("Directory already exists - this will overwrite existing data! Pausing in case of error (3s)...")
+        time.sleep(3)
         rospy.logwarn("Continuing...")
     Path(path_for_dataset + '/images/').mkdir(parents=True, exist_ok=True)
     Path(path_for_dataset + '/odo/').mkdir(parents=True, exist_ok=True)
@@ -85,6 +86,7 @@ def odom_image_processor():
 
         # Clear denest flags:
         nmrc.new_img0 = False
+        nmrc.new_odom = False
 
 if __name__ == '__main__':
     try:
