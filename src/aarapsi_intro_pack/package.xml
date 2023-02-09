@@ -41,11 +41,13 @@
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>tf2</exec_depend>
 
-  <exec_depend>python3-imutils</exec_depend>
   <exec_depend>python3-cv_bridge</exec_depend>	
   <exec_depend>python3-cv2</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>python3-stitching</exec_depend> 
+  <exec_depend>python3-pathlib</exec_depend> 
+  <exec_depend>python3-time</exec_depend> 
+  <exec_depend>python3-matplotlib</exec_depend> 
   
   <export>
   </export>

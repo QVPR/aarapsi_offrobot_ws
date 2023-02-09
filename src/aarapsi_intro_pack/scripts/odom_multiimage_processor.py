@@ -9,9 +9,6 @@ import numpy as np
 import rospkg
 from pathlib import Path
 import time
-import imutils
-import sys
-import stitching
 from matplotlib import pyplot as plt
 
 class mrc: # main ROS class
