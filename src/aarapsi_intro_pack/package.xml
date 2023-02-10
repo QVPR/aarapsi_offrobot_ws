@@ -48,6 +48,7 @@
   <exec_depend>python3-pathlib</exec_depend> 
   <exec_depend>python3-time</exec_depend> 
   <exec_depend>python3-matplotlib</exec_depend> 
+  <exec_depend>python3-pyyaml</exec_depend>
   
   <export>
   </export>

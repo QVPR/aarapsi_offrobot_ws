@@ -18,6 +18,7 @@ class mrc: # main ROS class
         self.frame_n    = 0 # n'th image recorded
 
         rospy.init_node('odom_image_processor', anonymous=True)
+        rospy.loginfo('Starting odom_image_processor node.')
         self.rate_num   = 0.2 # Hz
         self.rate_obj   = rospy.Rate(self.rate_num)
 
@@ -53,8 +54,9 @@ class mrc: # main ROS class
 def odom_image_processor():
     #!# Variables to Update
     set_name            = "set_1" # Name of folder that will house generated information
+    pack_name           = 'aarapsi_intro_pack' # in case it needs to be adjusted
     nmrc                = mrc() # make new class instance
-    path_for_dataset    = rospkg.RosPack().get_path('aarapsi_intro_pack') + "/data/" + set_name
+    path_for_dataset    = rospkg.RosPack().get_path(pack_name) + "/data/" + set_name
 
     # Handle checks for folder construction:
     rospy.loginfo("Attempting to construct data storage system")
