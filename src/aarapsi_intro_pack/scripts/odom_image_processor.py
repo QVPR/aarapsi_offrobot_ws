@@ -19,14 +19,15 @@ class mrc: # main ROS class
 
         rospy.init_node('odom_image_processor', anonymous=True)
         rospy.loginfo('Starting odom_image_processor node.')
-        self.rate_num   = 0.2 # Hz
+        self.rate_num   = 0.5 # Hz
         self.rate_obj   = rospy.Rate(self.rate_num)
+
+        self.bridge     = CvBridge() # to convert sensor_msgs/Image (or CompressedImage) to cv2
 
         self.odom_sub   = rospy.Subscriber("/odometry/filtered", Odometry, self.odom_callback)
         self.img0_sub   = rospy.Subscriber("/ros_indigosdk_occam/image0/compressed", CompressedImage, self.img0_callback)
         # alternative: self.img0_sub   = rospy.Subscriber("/ros_indigosdk_occam/image0", Image, self.img0_callback)
 
-        self.bridge     = CvBridge() # to convert sensor_msgs/Image (or CompressedImage) to cv2
         #self.store_img0 = self.bridge.compressed_imgmsg_to_cv2(CompressedImage, "bgr8") # populate, empty
         ## alternative: self.store_img0 = self.bridge.imgmsg_to_cv2(Image, "bgr8")
 

@@ -21,8 +21,10 @@ class mrc: # main ROS class
         rospy.init_node('odom_multiimage_processor', anonymous=True)
         rospy.loginfo('Starting odom_multiimage_processor node.')
         
-        self.rate_num           = 5 # Hz
+        self.rate_num           = 0.5 # Hz
         self.rate_obj           = rospy.Rate(self.rate_num)
+
+        self.bridge             = CvBridge() # to convert sensor_msgs/CompressedImage to cv2.
 
         self.odom_sub           = rospy.Subscriber("/odometry/filtered", Odometry, self.odom_callback)
         self.img_frwd_sub       = rospy.Subscriber("/ros_indigosdk_occam/image0/compressed", CompressedImage, self.img_frwd_callback, queue_size=1) # centre-view
@@ -31,8 +33,6 @@ class mrc: # main ROS class
         self.panorama_pub       = rospy.Publisher("/ros_indigosdk_occam/merged/pano/compressed", CompressedImage, queue_size=1)
         self.l_merged_pub       = rospy.Publisher("/ros_indigosdk_occam/merged/left/compressed", CompressedImage, queue_size=1)
         self.r_merged_pub       = rospy.Publisher("/ros_indigosdk_occam/merged/right/compressed", CompressedImage, queue_size=1)
-
-        self.bridge             = CvBridge() # to convert sensor_msgs/CompressedImage to cv2.
 
         # flags to denest main loop:
         self.new_img_frwd       = False
@@ -203,6 +203,9 @@ def odom_multiimage_processor():
         cv2.imwrite(left_merge, left_img_merge)
         cv2.imwrite(rght_merge, rght_img_merge)
 
+        np.savetxt(path_for_dataset + '/odo/frame_id_{}.csv'.format(str(nmrc.frame_n).zfill(6)), np.array([nmrc.robot_x, nmrc.robot_y, nmrc.robot_z]),delimiter=',')
+        
+        
         ## Publish to ROS for viewing pleasure (optional)
         # convert to ROS message first
         cimage_ros_pano = nmrc.bridge.cv2_to_compressed_imgmsg(crrctd_pnrm, "png")
