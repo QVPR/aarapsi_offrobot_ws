@@ -10,6 +10,7 @@ import rospkg
 from pathlib import Path
 import time
 from matplotlib import pyplot as plt
+from tqdm import tqdm
 
 class mrc: # main ROS class
     def __init__(self):
@@ -21,7 +22,7 @@ class mrc: # main ROS class
         rospy.init_node('odom_multiimage_processor', anonymous=True)
         rospy.loginfo('Starting odom_multiimage_processor node.')
         
-        self.rate_num           = 0.5 # Hz
+        self.rate_num           = 4.0 # Hz
         self.rate_obj           = rospy.Rate(self.rate_num)
 
         self.bridge             = CvBridge() # to convert sensor_msgs/CompressedImage to cv2.
@@ -104,7 +105,10 @@ def odom_multiimage_processor():
         return
     except FileExistsError:
         rospy.logwarn("Directory already exists - this will overwrite existing data! Pausing in case of error (3s)...")
-        time.sleep(3)
+        for i, count in tqdm(enumerate(range(0, 30, 2))): # keep spooling and listen for Ctrl+C
+            time.sleep(0.2)
+            if rospy.is_shutdown():
+                return
         rospy.logwarn("Continuing...")
 
     # Make subfolders:
@@ -115,6 +119,8 @@ def odom_multiimage_processor():
     Path(path_for_dataset + '/rightmerge/').mkdir(parents=True, exist_ok=True)
     Path(path_for_dataset + '/panorama/').mkdir(parents=True, exist_ok=True)
     Path(path_for_dataset + '/odo/').mkdir(parents=True, exist_ok=True)
+
+    rospy.loginfo("Ready, listening...")
 
     # Main loop:
     while not rospy.is_shutdown():
@@ -204,7 +210,6 @@ def odom_multiimage_processor():
         cv2.imwrite(rght_merge, rght_img_merge)
 
         np.savetxt(path_for_dataset + '/odo/frame_id_{}.csv'.format(str(nmrc.frame_n).zfill(6)), np.array([nmrc.robot_x, nmrc.robot_y, nmrc.robot_z]),delimiter=',')
-        
         
         ## Publish to ROS for viewing pleasure (optional)
         # convert to ROS message first

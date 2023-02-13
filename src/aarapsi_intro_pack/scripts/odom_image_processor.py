@@ -9,6 +9,7 @@ import numpy as np
 import rospkg
 from pathlib import Path
 import time
+from tqdm import tqdm
 
 class mrc: # main ROS class
     def __init__(self):
@@ -68,10 +69,15 @@ def odom_image_processor():
         return
     except FileExistsError:
         rospy.logwarn("Directory already exists - this will overwrite existing data! Pausing in case of error (3s)...")
-        time.sleep(3)
+        for i, count in tqdm(enumerate(range(0, 30, 2))): # keep spooling and listen for Ctrl+C
+            time.sleep(0.2)
+            if rospy.is_shutdown():
+                return
         rospy.logwarn("Continuing...")
     Path(path_for_dataset + '/images/').mkdir(parents=True, exist_ok=True)
     Path(path_for_dataset + '/odo/').mkdir(parents=True, exist_ok=True)
+
+    rospy.loginfo("Ready, listening...")
 
     # Main loop:
     while not rospy.is_shutdown():
