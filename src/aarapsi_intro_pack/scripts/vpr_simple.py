@@ -14,6 +14,7 @@ from pathlib import Path
 import os
 from scipy.spatial.distance import cdist
 from tqdm import tqdm
+from aarapsi_intro_pack.msg import CompressedImageLabelStamped # Our custom structure
 
 # https://answers.ros.org/question/37682/python-deep-copy-of-ros-message/
 import copy as copy_module
@@ -34,6 +35,7 @@ class mrc: # main ROS class
         self.img_frwd_sub       = rospy.Subscriber(sub_image_topic, CompressedImage, self.img_frwd_callback, queue_size=1) # frwd-view 
         self.odom_sub           = rospy.Subscriber(sub_odom_topic, Odometry, self.odom_callback, queue_size=1)
         self.vpr_feed_pub       = rospy.Publisher("/vpr_simple/image/compressed", CompressedImage, queue_size=1)
+        self.vpr_label_pub      = rospy.Publisher("/vpr_simple/image/label", CompressedImageLabelStamped, queue_size=1)
 
         self.bridge             = CvBridge() # to convert sensor_msgs/CompressedImage to cv2.
 
@@ -159,7 +161,7 @@ def vpr_simple():
 
     #!# Tune Here:
     ftType          = "downsampled_raw" # Feature Type
-    refImagesPath   = rospkg.RosPack().get_path('aarapsi_intro_pack') + "/data/cw_loop/rightmerge" # Path where reference images are stored (names are sorted before reading)
+    refImagesPath   = rospkg.RosPack().get_path('aarapsi_intro_pack') + "/data/cw_loop/forward" # Path where reference images are stored (names are sorted before reading)
     refOdomPath     = rospkg.RosPack().get_path('aarapsi_intro_pack') + "/data/cw_loop/odo" # Path for where odometry .csv files are stored
     feed_topic      = "/ros_indigosdk_occam/image0/compressed"
     odom_topic      = "/odometry/filtered"
@@ -186,8 +188,8 @@ def vpr_simple():
 
     plt.sca(axes[0]) # distance vector
     dist_vector = plt.plot([], [], 'k-')[0] # distance vector
-    lowest_dist = plt.plot([], [], 'ro', markersize=5)[0] # matched image (lowest distance)
-    actual_dist = plt.plot([], [], 'go', markersize=5)[0] # true image (correct match)
+    lowest_dist = plt.plot([], [], 'ro', markersize=7)[0] # matched image (lowest distance)
+    actual_dist = plt.plot([], [], 'mo', markersize=7)[0] # true image (correct match)
     axes[0].set(xlabel='Index', ylabel='Distance')
     axes[0].legend(["Image Distances", "Selected", "True"])
     axes[0].set_xlim(0, len(ref_x_data))
@@ -278,11 +280,20 @@ def vpr_simple():
             time_diff = this_time - nmrc.last_time
             nmrc.last_time = this_time
 
-            label_string = "Index [%04d] @ %2.2f Hz" % (matchInd, 1/time_diff.to_sec())
+            label_string = "Index [%04d], %2.2f Hz" % (matchInd, 1/time_diff.to_sec())
             cv2_img_lab = labelImage(cv2_image_to_pub, label_string, (20, cv2_image_to_pub.shape[0] - 40), (100, 255, 100))
 
             ros_image_to_pub = nmrc.bridge.cv2_to_compressed_imgmsg(cv2_img_lab, "png")
             nmrc.vpr_feed_pub.publish(ros_image_to_pub)
+
+            struct_to_pub = CompressedImageLabelStamped()
+            struct_to_pub.data.queryImage = ros_image_to_pub
+            struct_to_pub.data.matchId = matchInd
+            struct_to_pub.data.matchPath = imgList_ref_paths[matchInd]
+            struct_to_pub.header.frame_id = ros_image_to_pub.header.frame_id
+            struct_to_pub.header.stamp = rospy.Time.now()
+
+            nmrc.vpr_label_pub.publish(struct_to_pub)
 
         except Exception as e:
            rospy.logerr("Error caught in ROS msg processing. K condition violation likely (K = 0?). Caught error:")

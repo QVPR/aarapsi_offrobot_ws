@@ -1,0 +1,3 @@
+sensor_msgs/CompressedImage queryImage
+int64 matchId
+string matchPath
