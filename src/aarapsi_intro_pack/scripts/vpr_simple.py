@@ -131,18 +131,34 @@ class mrc: # main ROS class
             return [], [], []
         return x_list, y_list, z_list
 
-    def getMatchInds(self, ft_ref, ft_qry, topK=20, metric='euclidean'):
-    # top-K matching reference indices for query, shape: [K, N_q]  
+    def getMatchInds(self, ft_ref, ft_qry, metric='euclidean'):
+    # top matching reference index for query
 
         dMat = cdist(ft_ref, ft_qry, metric) # metric: 'euclidean' or 'cosine'
-        mInds = np.argsort(dMat, axis=0)[:topK] # shape: K x ft_qry.shape[0]
-        return mInds
+        mInds = np.argsort(dMat, axis=0)[:1] # shape: K x ft_qry.shape[0]
+        return mInds.flatten()[0], dMat
+    
+    def getTrueInds(self, real_odom, x_data, y_data):
+    # Compare measured odometry to reference odometry and find best match
+
+        squares = np.square(np.array(x_data) - real_odom[0]) + np.square(np.array(y_data) - real_odom[1])  # no point taking the sqrt; proportional
+        trueInd = np.argmin(squares)
+
+        return trueInd
+
+def labelImage(img_in, textstring, org_in, colour):
+    # Black border:
+    img_A = cv2.putText(img_in, textstring, org=org_in, fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1, \
+                                color=(0,0,0), thickness=7, lineType=cv2.LINE_AA)
+    # Colour inside:
+    img_B = cv2.putText(img_A, textstring, org=org_in, fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1, \
+                                color=colour, thickness=2, lineType=cv2.LINE_AA)
+    return img_B
 
 def vpr_simple():
 
     #!# Tune Here:
     ftType          = "downsampled_raw" # Feature Type
-    K               = 1 # top-K matched reference indices. TODO: currently only works with K=1 (see next TODO in main)
     refImagesPath   = rospkg.RosPack().get_path('aarapsi_intro_pack') + "/data/cw_loop/rightmerge" # Path where reference images are stored (names are sorted before reading)
     refOdomPath     = rospkg.RosPack().get_path('aarapsi_intro_pack') + "/data/cw_loop/odo" # Path for where odometry .csv files are stored
     feed_topic      = "/ros_indigosdk_occam/image0/compressed"
@@ -150,7 +166,10 @@ def vpr_simple():
 
     nmrc = mrc(feed_topic, odom_topic) # make new class instance
     
-    # Prepare lists for plotting via plt
+    ## Prepare lists for plotting via plt
+    # Reference: Full list for use in query and true
+    # Match: the odom for the matched image
+    # True: for n'th index, the correct odom from ROS topic
     ref_x_data, ref_y_data, _ = nmrc.processOdomDataset(refOdomPath)
     if len(ref_x_data) < 1:
        return # error case; list is empty!
@@ -160,29 +179,37 @@ def vpr_simple():
     if len(imgList_ref_paths) < 1:
        return # error case; list is empty!
 
-    qry_x_data, qry_y_data, _ = [], [], [] # Queries: init as empty
-
     ## Set up odometry figure:
     # https://www.geeksforgeeks.org/data-visualization-using-matplotlib/
-    fig = plt.figure()
+    # https://matplotlib.org/stable/gallery/subplots_axes_and_figures/subplots_demo.html
+    fig, axes = plt.subplots(1, 2)
 
+    plt.sca(axes[0]) # distance vector
+    dist_vector = plt.plot([], [], 'k-')[0] # distance vector
+    lowest_dist = plt.plot([], [], 'ro', markersize=5)[0] # matched image (lowest distance)
+    actual_dist = plt.plot([], [], 'go', markersize=5)[0] # true image (correct match)
+    axes[0].set(xlabel='Index', ylabel='Distance')
+    axes[0].legend(["Image Distances", "Selected", "True"])
+    axes[0].set_xlim(0, len(ref_x_data))
+    axes[0].set_ylim(0, 10000)
+
+    plt.sca(axes[1])
     ref_plotted = plt.plot(ref_x_data, ref_y_data, 'b-')[0]
-    qry_plotted = plt.plot(qry_x_data, qry_y_data, 'r*')[0]
+    mat_plotted = plt.plot([], [], 'r+', markersize=6)[0] # Match values: init as empty
+    tru_plotted = plt.plot([], [], 'gx', markersize=4)[0] # True value: init as empty
 
-    plt.title("Odometry Visualised")
-    plt.xlabel('X-Axis')
-    plt.ylabel('Y-Axis')
-    plt.legend(["Reference", "Query"])
+    fig.suptitle("Odometry Visualised")
+    axes[1].set(xlabel='X-Axis', ylabel='Y-Axis')
+    axes[1].legend(["Reference", "Match", "True"])
 
     stretch_x_ref_data = 0.1 * (max(ref_x_data) - min(ref_x_data))
     stretch_y_ref_data = 0.1 * (max(ref_y_data) - min(ref_y_data))
-    plt.xlim(min(ref_x_data) - stretch_x_ref_data, max(ref_x_data) + stretch_x_ref_data)
-    plt.ylim(min(ref_y_data) - stretch_y_ref_data, max(ref_y_data) + stretch_y_ref_data)
-    plt.gca().set_aspect('equal')
 
-    plt.draw()
-    #plt.show(block=False)
-    #plt.pause(2)
+    axes[1].set_xlim(min(ref_x_data) - stretch_x_ref_data, max(ref_x_data) + stretch_x_ref_data)
+    axes[1].set_ylim(min(ref_y_data) - stretch_y_ref_data, max(ref_y_data) + stretch_y_ref_data)
+    axes[1].set_aspect('equal')
+
+    fig.show()
 
     rospy.loginfo("Reference list processed. Listening for queries...")
     
@@ -199,65 +226,66 @@ def vpr_simple():
         this_odom           = copy_module.deepcopy((nmrc.robot_x, nmrc.robot_y))
         this_image          = copy_module.deepcopy(nmrc.store_img_frwd)
 
-        # Plot new odometry: TODO
-        num_queries = len(list(qry_plotted.get_xdata()))
-        queries_keep = 10
-        if num_queries < queries_keep:
-            start_ind = 0
-        else:
-            start_ind = num_queries - queries_keep + 1
-        print((start_ind, num_queries))
-        qry_plotted.set_xdata(np.append(qry_plotted.get_xdata()[start_ind:num_queries], this_odom[0]))
-        qry_plotted.set_ydata(np.append(qry_plotted.get_ydata()[start_ind:num_queries], this_odom[1]))
-        plt.draw()
-        plt.pause(0.001)
-
         # Clear flags:
         nmrc.new_img_frwd   = False
         nmrc.new_odom       = False
 
         ft_qry = nmrc.getFeat(this_image, ftType).reshape(1,-1) # ensure 2D matrix
-        matchInds = nmrc.getMatchInds(ft_ref, ft_qry, K).flatten()[0] # Find match/es
+        matchInd, dist_vector_calc = nmrc.getMatchInds(ft_ref, ft_qry) # Find match/es
+        trueInd = nmrc.getTrueInds(this_odom, ref_x_data, ref_y_data) # find correct match based on shortest difference to measured odometry
 
-        # TODO: fix multi-match/zero-match problem, K != 1
+        # Plot new odometry:
+        num_queries = len(list(tru_plotted.get_xdata()))
+        queries_keep = 10
+        if num_queries < queries_keep:
+            start_ind = 0
+        else:
+            start_ind = num_queries - queries_keep + 1
+
+        ## x,y plot:
+        # Append new value for "match" (what it matched the image to)
+        mat_plotted.set_xdata(np.append(mat_plotted.get_xdata()[start_ind:num_queries], ref_x_data[matchInd]))
+        mat_plotted.set_ydata(np.append(mat_plotted.get_ydata()[start_ind:num_queries], ref_y_data[matchInd]))
+        # Append new value for "true" (what it should be from the robot odom)
+        tru_plotted.set_xdata(np.append(tru_plotted.get_xdata()[start_ind:num_queries], ref_x_data[trueInd]))
+        tru_plotted.set_ydata(np.append(tru_plotted.get_ydata()[start_ind:num_queries], ref_y_data[trueInd]))
+
+        ## distance vector plot:
+        # overwrite with new distance vector / image distance:
+        dist_vector.set_xdata(range(len(dist_vector_calc-1)))
+        dist_vector.set_ydata(dist_vector_calc)
+        # overwrite with new lowest match:
+        lowest_dist.set_xdata(matchInd)
+        lowest_dist.set_ydata(dist_vector_calc[matchInd])
+        # overwrite with new truth value:
+        actual_dist.set_xdata(trueInd)
+        actual_dist.set_ydata(dist_vector_calc[trueInd])
+        
+        fig.show()
+        plt.pause(0.001)
+
         try:
-            match_img = cv2.imread(imgList_ref_paths[matchInds])
+            match_img = cv2.imread(imgList_ref_paths[matchInd])
             query_img = cv2.resize(this_image, (match_img.shape[1], match_img.shape[0]), interpolation= cv2.INTER_AREA) # resize to match_img dimensions
-
-            # Black border:
-            match_labelled_A = cv2.putText(match_img, "Reference", org=(20, 40), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1, \
-                                        color=(0, 0, 0), thickness=7, lineType=cv2.LINE_AA)
-            query_labelled_A = cv2.putText(query_img, "Query", org=(20, 40), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1, \
-                                        color=(0, 0, 0), thickness=7, lineType=cv2.LINE_AA)
             
-            # Colour inside:
-            match_labelled_B = cv2.putText(match_labelled_A, "Reference", org=(20, 40), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1, \
-                                        color=(100, 255, 100), thickness=2, lineType=cv2.LINE_AA)
-            query_labelled_B = cv2.putText(query_labelled_A, "Query", org=(20, 40), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1, \
-                                        color=(100, 255, 100), thickness=2, lineType=cv2.LINE_AA)
+            match_img_lab = labelImage(match_img, "Reference", (20,40), (100,255,100))
+            query_img_lab = labelImage(query_img, "Query", (20,40), (100,255,100))
 
-            cv2_image_to_pub = np.concatenate((match_labelled_B, query_labelled_B), axis=1)
+            cv2_image_to_pub = np.concatenate((match_img_lab, query_img_lab), axis=1)
             
             # Measure timing
             this_time = rospy.Time.now()
             time_diff = this_time - nmrc.last_time
             nmrc.last_time = this_time
 
-            label_string = "Index [%04d] | %2.2f Hz" % (matchInds, 1/time_diff.to_sec())
+            label_string = "Index [%04d] @ %2.2f Hz" % (matchInd, 1/time_diff.to_sec())
+            cv2_img_lab = labelImage(cv2_image_to_pub, label_string, (20, cv2_image_to_pub.shape[0] - 40), (100, 255, 100))
 
-            # Black border:
-            cv2_img_labelled_A = cv2.putText(cv2_image_to_pub, label_string, org=(20, cv2_image_to_pub.shape[0] - 40), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1, \
-                                        color=(0, 0, 0), thickness=7, lineType=cv2.LINE_AA)
-            # Colour inside:
-            cv2_img_labelled_B = cv2.putText(cv2_img_labelled_A, label_string, org=(20, cv2_image_to_pub.shape[0] - 40), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1, \
-                                        color=(100, 255, 100), thickness=2, lineType=cv2.LINE_AA)
-
-            ros_image_to_pub = nmrc.bridge.cv2_to_compressed_imgmsg(cv2_img_labelled_B, "png")
-
+            ros_image_to_pub = nmrc.bridge.cv2_to_compressed_imgmsg(cv2_img_lab, "png")
             nmrc.vpr_feed_pub.publish(ros_image_to_pub)
 
         except Exception as e:
-           rospy.logerr("Error caught in ROS msg processing. K condition violation likely. Caught error:")
+           rospy.logerr("Error caught in ROS msg processing. K condition violation likely (K = 0?). Caught error:")
            rospy.logwarn(e)
 
 
