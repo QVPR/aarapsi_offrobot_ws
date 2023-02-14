@@ -51,6 +51,7 @@
   <exec_depend>python3-time</exec_depend> 
   <exec_depend>python3-matplotlib</exec_depend> 
   <exec_depend>python3-pyyaml</exec_depend>
+  <exec_depend>python3-sklearn</exec_depend>
   
   <export>
   </export>

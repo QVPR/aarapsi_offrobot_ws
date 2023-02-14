@@ -7,7 +7,11 @@ from cv_bridge import CvBridge
 import cv2
 import numpy as np
 import rospkg
-from matplotlib import pyplot as plt
+## https://stackoverflow.com/questions/49921721/runtimeerror-main-thread-is-not-in-main-loop-with-matplotlib-and-flask
+import matplotlib
+matplotlib.use('GTK3Agg')
+import matplotlib.pyplot as plt
+#from matplotlib import pyplot as plt
 from enum import Enum
 
 import os
@@ -32,7 +36,9 @@ class mrc: # main ROS class
         rospy.init_node('vpr_simple', anonymous=True)
         rospy.loginfo('Starting vpr_simple node.')
 
-        self.rate_num           = 5 # Hz
+        self.fig, self.axes     = plt.subplots(1, 3)
+
+        self.rate_num           = 50 # Hz
         self.rate_obj           = rospy.Rate(self.rate_num)
 
         self.bridge             = CvBridge() # to convert sensor_msgs/CompressedImage to cv2.
@@ -41,11 +47,21 @@ class mrc: # main ROS class
         self.odom_sub           = rospy.Subscriber(sub_odom_topic, Odometry, self.odom_callback, queue_size=1)
         self.vpr_feed_pub       = rospy.Publisher("/vpr_simple/image/compressed", CompressedImage, queue_size=1)
         self.vpr_label_pub      = rospy.Publisher("/vpr_simple/image/label", CompressedImageLabelStamped, queue_size=1)
+        self.timer_plot         = rospy.Timer(rospy.Duration(0.1), self.timer_plot_callback) # 10 Hz
 
         # flags to denest main loop:
         self.new_img_frwd       = False
         self.new_odom           = False
-        self.last_time           = rospy.Time.now()
+        self.last_time          = rospy.Time.now()
+        self.main_ready         = False
+
+    def timer_plot_callback(self, event):
+        if not self.main_ready:
+            return
+        
+        #self.fig.show()
+        plt.draw()
+        #plt.pause(0.000001)
 
     def odom_callback(self, msg):
     # /odometry/filtered (nav_msgs/Odometry)
@@ -91,8 +107,8 @@ class mrc: # main ROS class
 
         return img2
 
-    def getFeat(self, im, ftType):
-        im = cv2.resize(im, (64, 64))
+    def getFeat(self, im, ftType, imDims):
+        im = cv2.resize(im, imDims)
         ft = cv2.cvtColor(im, cv2.COLOR_RGB2GRAY)
         if ftType == "downsampled_raw":
             pass # already done
@@ -100,7 +116,7 @@ class mrc: # main ROS class
             ft = self.patchNormaliseImage(ft, 8)
         return ft.flatten()
 
-    def processImageDataset(self, path, ftType): 
+    def processImageDataset(self, path, ftType, imDims): 
     # Extract images and their features from path
     # Store in arrays and return them.
 
@@ -110,7 +126,7 @@ class mrc: # main ROS class
         if len(imPath_list) > 0:
             for i, imPath in tqdm(enumerate(imPath_list)):
                 frame = cv2.imread(imPath)[:, :, ::-1]
-                feat = self.getFeat(frame, ftType) # ftType: 'downsampled_patchNorm' or 'downsampled_raw'
+                feat = self.getFeat(frame, ftType, imDims) # ftType: 'downsampled_patchNorm' or 'downsampled_raw'
                 feat_list.append(feat)
         else:
             rospy.logerr("Error: No files at reference image path - cannot continue.")
@@ -160,7 +176,14 @@ def labelImage(img_in, textstring, org_in, colour):
                                 color=colour, thickness=2, lineType=cv2.LINE_AA)
     return img_B
 
-def doDVecFig(fig, axes, ref_x_data, ref_y_data):
+def doMtrxFig(axes, ref_x_data, ref_y_data):
+    plt.sca(axes)
+    mtrx_image = np.zeros((len(ref_x_data), len(ref_x_data)))
+    axes.imshow(mtrx_image)
+    axes.set(xlabel='Query Frame', ylabel='Reference Frame')
+    return mtrx_image
+
+def doDVecFig(axes, ref_x_data, ref_y_data):
 # Set up distance vector figure
 # https://www.geeksforgeeks.org/data-visualization-using-matplotlib/
 # https://matplotlib.org/stable/gallery/subplots_axes_and_figures/subplots_demo.html
@@ -176,7 +199,7 @@ def doDVecFig(fig, axes, ref_x_data, ref_y_data):
 
     return dist_vector, lowest_dist, actual_dist # return handles
 
-def doOdomFig(fig, axes, ref_x_data, ref_y_data):
+def doOdomFig(axes, ref_x_data, ref_y_data):
 # Set up odometry figure
 
     plt.sca(axes)
@@ -196,10 +219,30 @@ def doOdomFig(fig, axes, ref_x_data, ref_y_data):
 
     return ref_plotted, mat_plotted, tru_plotted # return handles
 
-def updateOdomVisualisation(fig, mInd, tInd, dis, low, act, ref, mat, tru, x_data, y_data, dvc):
-# Update plots on fig with new data (match->mInd, true->tInd)
-# Use old handles (dis,low,act,ref,mat,tru) and crunched distance vector (dvc)
+def updateMtrxFig(matchInd, trueInd, mtrx, axes, new_dv):
+    mtrx_new = np.delete(mtrx, 0, 1) # delete first column (oldest query)
+    mtrx_new = np.concatenate((mtrx_new, np.array(new_dv)), 1)
+    axes.clear()
+    axes.imshow(mtrx_new, interpolation=None, alpha=None, origin='centre',extent=(0,len(new_dv),0,len(new_dv)))
+    return mtrx_new
 
+def updateDVecFig(mInd, tInd, dis, low, act, dvc):
+# Update DVec figure with new data (match->mInd, true->tInd)
+# Use old handles (dist_vector, lowest_dist, actual_dist) and crunched distance vector (dvc)
+    ## distance vector plot:
+    # overwrite with new distance vector / image distance:
+    dis.set_xdata(range(len(dvc-1)))
+    dis.set_ydata(dvc)
+    # overwrite with new lowest match:
+    low.set_xdata(mInd)
+    low.set_ydata(dvc[mInd])
+    # overwrite with new truth value:
+    act.set_xdata(tInd)
+    act.set_ydata(dvc[tInd])
+
+def updateOdomFig(mInd, tInd, ref, mat, tru, x_data, y_data):
+# Update odometryfigure with new data (match->mInd, true->tInd)
+# Use old handles (reference, match, true)
     # Only display last 'queries_keep' number of points
     num_queries = len(list(tru.get_xdata()))
     queries_keep = 10
@@ -214,20 +257,6 @@ def updateOdomVisualisation(fig, mInd, tInd, dis, low, act, ref, mat, tru, x_dat
     # Append new value for "true" (what it should be from the robot odom)
     tru.set_xdata(np.append(tru.get_xdata()[start_ind:num_queries], x_data[tInd]))
     tru.set_ydata(np.append(tru.get_ydata()[start_ind:num_queries], y_data[tInd]))
-
-    ## distance vector plot:
-    # overwrite with new distance vector / image distance:
-    dis.set_xdata(range(len(dvc-1)))
-    dis.set_ydata(dvc)
-    # overwrite with new lowest match:
-    low.set_xdata(mInd)
-    low.set_ydata(dvc[mInd])
-    # overwrite with new truth value:
-    act.set_xdata(tInd)
-    act.set_ydata(dvc[tInd])
-    
-    fig.show()
-    plt.pause(0.001)
 
 def makeImage(query_raw, match_path, icon_to_use, icon_size=100, icon_dist=0):
     match_img = cv2.imread(match_path)
@@ -258,11 +287,13 @@ def vpr_simple():
     refOdomPath     = rospkg.RosPack().get_path('aarapsi_intro_pack') + "/data/cw_loop/odo" # Path for where odometry .csv files are stored
     feed_topic      = "/ros_indigosdk_occam/image0/compressed"
     odom_topic      = "/odometry/filtered"
-    tolMode         = Tolerance_Mode.FRAME # or FRAME
+    tolMode         = Tolerance_Mode.METRE # or FRAME
     tolThres        = 5.0
     FRAME_ID        = "base_link"
     ICON_SIZE       = 50
     ICON_DIST       = 20
+    imDims          = (64, 64)
+    match_metric    = 'euclidean'
 
     nmrc = mrc(feed_topic, odom_topic) # make new class instance
 
@@ -281,21 +312,22 @@ def vpr_simple():
        return # error case; list is empty!
 
     # Process reference data (only needs to be done once)
-    imgList_ref_paths, ft_ref = nmrc.processImageDataset(refImagesPath, ftType)
+    imgList_ref_paths, ft_ref = nmrc.processImageDataset(refImagesPath, ftType, imDims)
     if len(imgList_ref_paths) < 1:
        return # error case; list is empty!
 
-    fig, axes = plt.subplots(1, 2)
-    fig.suptitle("Odometry Visualised")
-    dist_vector, lowest_dist, actual_dist = doDVecFig(fig, axes[0], ref_x_data, ref_y_data) # Make distance vector figure
-    ref_plotted, mat_plotted, tru_plotted = doOdomFig(fig, axes[1], ref_x_data, ref_y_data) # Make odometry figure
-    fig.show()
+    nmrc.fig.suptitle("Odometry Visualised")
+    mtrx_lists = doMtrxFig(nmrc.axes[0], ref_x_data, ref_y_data) # Make simularity matrix figure
+    dvec_lists = doDVecFig(nmrc.axes[1], ref_x_data, ref_y_data) # Make distance vector figure
+    odom_lists = doOdomFig(nmrc.axes[2], ref_x_data, ref_y_data) # Make odometry figure
+    nmrc.fig.show()
+    plt.pause(0.001)
 
     rospy.loginfo("Reference list processed. Listening for queries...")
     
     # Main loop:
     while not rospy.is_shutdown():
-
+        nmrc.main_ready = True
         nmrc.rate_obj.sleep()
 
         if not (nmrc.new_img_frwd and nmrc.new_odom): # denest
@@ -306,8 +338,8 @@ def vpr_simple():
         nmrc.new_img_frwd   = False
         nmrc.new_odom       = False
 
-        ft_qry = nmrc.getFeat(nmrc.store_img_frwd, ftType).reshape(1,-1) # ensure 2D matrix
-        matchInd, dist_vector_calc = nmrc.getMatchInds(ft_ref, ft_qry) # Find match/es
+        ft_qry = nmrc.getFeat(nmrc.store_img_frwd, ftType, imDims).reshape(1,-1) # ensure 2D matrix
+        matchInd, dist_vector_calc = nmrc.getMatchInds(ft_ref, ft_qry, match_metric) # Find match/es
         trueInd = nmrc.getTrueInds((nmrc.robot_x, nmrc.robot_y), ref_x_data, ref_y_data) # find correct match based on shortest difference to measured odometry
 
         # Determine if we are within tolerance:
@@ -326,10 +358,9 @@ def vpr_simple():
             icon_to_use = good_small_icon
 
         # Update odometry visualisation:
-        updateOdomVisualisation(fig, matchInd, trueInd, \
-                                dist_vector, lowest_dist, actual_dist, \
-                                ref_plotted, mat_plotted, tru_plotted, \
-                                ref_x_data, ref_y_data, dist_vector_calc)
+        updateDVecFig(matchInd, trueInd, dvec_lists[0], dvec_lists[1], dvec_lists[2], dist_vector_calc)
+        updateOdomFig(matchInd, trueInd, odom_lists[0], odom_lists[1], odom_lists[2], ref_x_data, ref_y_data)
+        mtrx_lists = updateMtrxFig(matchInd, trueInd, mtrx_lists, nmrc.axes[0], dist_vector_calc)
 
         try:
             cv2_image_to_pub = makeImage(nmrc.store_img_frwd, imgList_ref_paths[matchInd], \
