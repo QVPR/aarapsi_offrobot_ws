@@ -229,6 +229,27 @@ def updateOdomVisualisation(fig, mInd, tInd, dis, low, act, ref, mat, tru, x_dat
     fig.show()
     plt.pause(0.001)
 
+def makeImage(query_raw, match_path, icon_to_use, icon_size=100, icon_dist=0):
+    match_img = cv2.imread(match_path)
+    query_img = cv2.resize(query_raw, (match_img.shape[1], match_img.shape[0]), interpolation = cv2.INTER_AREA) # resize to match_img dimensions
+    
+    match_img_lab = labelImage(match_img, "Reference", (20,40), (100,255,100))
+    img_slice = match_img_lab[-1 - icon_size - icon_dist:-1 - icon_dist, -1 - icon_size - icon_dist:-1 - icon_dist, :]
+    # https://docs.opencv.org/3.4/da/d97/tutorial_threshold_inRange.html
+    icon_mask_inv = cv2.inRange(icon_to_use, (50,50,50), (255,255,255)) # get border (white)
+    icon_mask = 255 - icon_mask_inv # get shape
+    icon_mask_stack_inv = cv2.merge([icon_mask_inv, icon_mask_inv, icon_mask_inv]) / 255 # stack into rgb layers, binary image
+    icon_mask_stack = cv2.merge([icon_mask, icon_mask, icon_mask]) / 255 # stack into rgb layers, binary image
+    opacity_icon = 0.8 # 80%
+    # create new slice with appropriate layering
+    img_slice = (icon_mask_stack_inv * img_slice) + \
+                (icon_mask_stack * icon_to_use) * (opacity_icon) + \
+                (icon_mask_stack * img_slice) * (1-opacity_icon)
+    match_img_lab[-1 - icon_size - icon_dist:-1 - icon_dist, -1 - icon_size - icon_dist:-1 - icon_dist, :] = img_slice
+    query_img_lab = labelImage(query_img, "Query", (20,40), (100,255,100))
+
+    return np.concatenate((match_img_lab, query_img_lab), axis=1)
+
 def vpr_simple():
 
     #!# Tune Here:
@@ -240,13 +261,14 @@ def vpr_simple():
     tolMode         = Tolerance_Mode.FRAME # or FRAME
     tolThres        = 5.0
     FRAME_ID        = "base_link"
+    ICON_SIZE       = 50
+    ICON_DIST       = 20
 
     nmrc = mrc(feed_topic, odom_topic) # make new class instance
 
     # Load icons:
     good_icon = cv2.imread(rospkg.RosPack().get_path('aarapsi_intro_pack') + '/media/' + 'tick.png', cv2.IMREAD_UNCHANGED)
     poor_icon = cv2.imread(rospkg.RosPack().get_path('aarapsi_intro_pack') + '/media/' + 'cross.png', cv2.IMREAD_UNCHANGED)
-    ICON_SIZE = 50
     good_small_icon = cv2.resize(good_icon, (ICON_SIZE, ICON_SIZE), interpolation = cv2.INTER_AREA)
     poor_small_icon = cv2.resize(poor_icon, (ICON_SIZE, ICON_SIZE), interpolation = cv2.INTER_AREA)
 
@@ -310,26 +332,8 @@ def vpr_simple():
                                 ref_x_data, ref_y_data, dist_vector_calc)
 
         try:
-            match_img = cv2.imread(imgList_ref_paths[matchInd])
-            query_img = cv2.resize(nmrc.store_img_frwd, (match_img.shape[1], match_img.shape[0]), interpolation = cv2.INTER_AREA) # resize to match_img dimensions
-            
-            match_img_lab = labelImage(match_img, "Reference", (20,40), (100,255,100))
-            ICON_DIST = 20
-            img_slice = match_img_lab[-1 - ICON_SIZE - ICON_DIST:-1 - ICON_DIST, -1 - ICON_SIZE - ICON_DIST:-1 - ICON_DIST, :]
-            # https://docs.opencv.org/3.4/da/d97/tutorial_threshold_inRange.html
-            icon_mask_inv = cv2.inRange(icon_to_use, (50,50,50), (255,255,255)) # get border (white)
-            icon_mask = 255 - icon_mask_inv # get shape
-            icon_mask_stack_inv = cv2.merge([icon_mask_inv, icon_mask_inv, icon_mask_inv]) / 255 # stack into rgb layers, binary image
-            icon_mask_stack = cv2.merge([icon_mask, icon_mask, icon_mask]) / 255 # stack into rgb layers, binary image
-            opacity_icon = 0.8 # 80%
-            # create new slice with appropriate layering
-            img_slice = (icon_mask_stack_inv * img_slice) + \
-                        (icon_mask_stack * icon_to_use) * (opacity_icon) + \
-                        (icon_mask_stack * img_slice) * (1-opacity_icon)
-            match_img_lab[-1 - ICON_SIZE - ICON_DIST:-1 - ICON_DIST, -1 - ICON_SIZE - ICON_DIST:-1 - ICON_DIST, :] = img_slice
-            query_img_lab = labelImage(query_img, "Query", (20,40), (100,255,100))
-
-            cv2_image_to_pub = np.concatenate((match_img_lab, query_img_lab), axis=1)
+            cv2_image_to_pub = makeImage(nmrc.store_img_frwd, imgList_ref_paths[matchInd], \
+                                         icon_to_use, icon_size=ICON_SIZE, icon_dist=ICON_DIST)
             
             # Measure timing
             this_time = rospy.Time.now()
