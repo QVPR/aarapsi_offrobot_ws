@@ -9,8 +9,6 @@ import numpy as np
 import rospkg
 from matplotlib import pyplot as plt
 from enum import Enum
-import time
-from multiprocessing import Process
 
 import os
 from scipy.spatial.distance import cdist
@@ -18,8 +16,10 @@ from tqdm import tqdm
 from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped # Our custom structures
 
 class Tolerance_Mode(Enum):
-    METRE = 0
-    FRAME = 1
+    METRE_CROW_TRUE = 0
+    METRE_CROW_MATCH = 1
+    METRE_LINE = 2
+    FRAME = 3
 
 class mrc: # main ROS class
     def __init__(self):
@@ -37,7 +37,7 @@ class mrc: # main ROS class
         self.REF_ODOM_PATH   = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/ccw_loop/odo" # Path for where odometry .csv files are stored
         self.FEED_TOPIC      = "/ros_indigosdk_occam/image0/compressed"
         self.ODOM_TOPIC      = "/odometry/filtered"
-        self.TOL_MODE        = Tolerance_Mode.METRE # or FRAME
+        self.TOL_MODE        = Tolerance_Mode.METRE_LINE
         self.TOL_THRES       = 5.0
         self.FRAME_ID        = "base_link"
         self.ICON_SIZE       = 50
@@ -49,8 +49,8 @@ class mrc: # main ROS class
         #!# Enable/Disable Features (Label topic will always be generated):
         self.DO_COMPRESS     = False
         self.DO_PLOTTING     = False
-        self.MAKE_IMAGE      = False
-        self.GROUND_TRUTH    = False
+        self.MAKE_IMAGE      = True
+        self.GROUND_TRUTH    = True
 
         self.ego                = [0.0, 0.0, 0.0] # robot position
 
@@ -97,7 +97,7 @@ class mrc: # main ROS class
             doOdomFig(self, axis=2) # Make odometry figure
             self.fig.show()
 
-        self.ICON_DICT = {'size': self.ICON_SIZE, 'dist': self.ICON_DIST, 'icon': None, 'good': None, 'poor': None}
+        self.ICON_DICT = {'size': self.ICON_SIZE, 'dist': self.ICON_DIST, 'icon': [], 'good': [], 'poor': []}
         # Load icons:
         if self.MAKE_IMAGE:
             good_icon = cv2.imread(rospkg.RosPack().get_path(self.PACKAGE_NAME) + '/media/' + 'tick.png', cv2.IMREAD_UNCHANGED)
@@ -347,7 +347,7 @@ def makeImage(query_raw, match_path, icon_to_use, icon_size=100, icon_dist=0):
     match_img_lab = labelImage(match_img, "Reference", (20,40), (100,255,100))
     query_img_lab = labelImage(query_img, "Query", (20,40), (100,255,100))
 
-    if not icon_to_use == None:
+    if icon_size > 0:
         # Add Icon:
         img_slice = match_img_lab[-1 - icon_size - icon_dist:-1 - icon_dist, -1 - icon_size - icon_dist:-1 - icon_dist, :]
         # https://docs.opencv.org/3.4/da/d97/tutorial_threshold_inRange.html
@@ -386,16 +386,28 @@ def main_loop(nmrc):
 
     ft_qry = nmrc.getFeat(nmrc.store_img_frwd, nmrc.FEAT_TYPE, nmrc.IMG_DIMS).reshape(1,-1) # ensure 2D matrix
     matchInd, dvc = nmrc.getMatchInd(ft_qry, nmrc.MATCH_METRIC) # Find match
-    trueInd = nmrc.getTrueInd() # find correct match based on shortest difference to measured odometry
+    trueInd = -1 #default; can't be negative.
+    if nmrc.GROUND_TRUTH:
+        trueInd = nmrc.getTrueInd() # find correct match based on shortest difference to measured odometry
+    else:
+        nmrc.ICON_DICT['size'] = -1
 
     ground_truth_string = ""
     if nmrc.GROUND_TRUTH and nmrc.MAKE_IMAGE:
         # Determine if we are within tolerance:
         nmrc.ICON_DICT['icon'] = nmrc.ICON_DICT['poor']
-        if nmrc.TOL_MODE == Tolerance_Mode.METRE:
+        if nmrc.TOL_MODE == Tolerance_Mode.METRE_CROW_TRUE:
+            tolError = np.sqrt(np.square(nmrc.ref_odom['x'][trueInd] - nmrc.ego[0]) + \
+                    np.square(nmrc.ref_odom['y'][trueInd] - nmrc.ego[1])) 
+            tolString = "MCT"
+        elif nmrc.TOL_MODE == Tolerance_Mode.METRE_CROW_MATCH:
+            tolError = np.sqrt(np.square(nmrc.ref_odom['x'][matchInd] - nmrc.ego[0]) + \
+                    np.square(nmrc.ref_odom['y'][matchInd] - nmrc.ego[1])) 
+            tolString = "MCM"
+        elif nmrc.TOL_MODE == Tolerance_Mode.METRE_LINE:
             tolError = np.sqrt(np.square(nmrc.ref_odom['x'][trueInd] - nmrc.ref_odom['x'][matchInd]) + \
                     np.square(nmrc.ref_odom['y'][trueInd] - nmrc.ref_odom['y'][matchInd])) 
-            tolString = "M"
+            tolString = "ML"
         elif nmrc.TOL_MODE == Tolerance_Mode.FRAME:
             tolError = np.abs(matchInd - trueInd)
             tolString = "F"
