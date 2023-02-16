@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
+import rospy
 import numpy as np
 import os
 import cv2
-import pickle
 from enum import Enum
 from tqdm import tqdm
 
@@ -16,6 +16,12 @@ class VPRImageProcessor: # main ROS class
 
         self.clearImageVariables()
         self.clearOdomVariables()
+
+    def print(self, text):
+        if not rospy.is_shutdown():
+            rospy.loginfo(text)
+        else:
+            print(text)
 
     def loadFull(self, img_path, odom_path, feat_type, img_dims):
         self.loadImageFeatures(img_path, feat_type, img_dims)
@@ -35,7 +41,7 @@ class VPRImageProcessor: # main ROS class
             self.IMAGES_LOADED = True
             return self.image_features
         except Exception as e:
-            print("[ERROR][loadImageFeatures] Unable to interpret, failed. Check variables.\nEnsure: img_path is a valid string, feat_type is a valid FeatureType value (not NONE!), and image dimensions are a two-element integer tuple of valid dimensions (greater than zero).\nError: %s" % (e))
+            self.print("[ERROR][loadImageFeatures] Unable to interpret, failed. Check variables.\nEnsure: img_path is a valid string, feat_type is a valid FeatureType value (not NONE!), and image dimensions are a two-element integer tuple of valid dimensions (greater than zero).\nError: %s" % (e))
             self.clearImageVariables()
             return []
     
@@ -50,11 +56,11 @@ class VPRImageProcessor: # main ROS class
             if not (self.odom_x and self.odom_y): # if empty
                 raise Exception("Output is empty. Check inputs.")
             if not (self.odom_z): # may not exist
-                print("[WARN][loadOdometry] Odometry has no z values.")
+                self.print("[WARN][loadOdometry] Odometry has no z values.")
             self.ODOM_LOADED = True
             return self.odom_x, self.odom_y, self.odom_z
         except Exception as e:
-            print("[ERROR][loadOdometry] Unable to interpret, failed. Check variables.\nEnsure: odom_path is a valid string.\nError: %s" % (e))
+            self.print("[ERROR][loadOdometry] Unable to interpret, failed. Check variables.\nEnsure: odom_path is a valid string.\nError: %s" % (e))
             self.clearOdomVariables()
             return [], [], []
         
@@ -103,23 +109,24 @@ class VPRImageProcessor: # main ROS class
         try:
             data = self._npzLoader(database_path, filename)
             key_string = str(np.fromiter(data.keys(), (str, 15))).replace('\'', '').replace('\n', '').replace(' ', ', ')
-            print("[npzLoader] Success. Data found with keys: %s" % (key_string))
+            self.print("[npzLoader] Success. Data found with keys: %s" % (key_string))
             return data
         except Exception as e:
-            print("[ERROR][npzLoader] Load failed. Check path and file name is correct.\nError: %s" % (e))
+            self.print("[ERROR][npzLoader] Load failed. Check path and file name is correct.\nError: %s" % (e))
 
     def npzDatabaseLoadSave(self, database_path, filename, img_path, odom_path, feat_type, img_dims, do_save=False):
         try:
             self.IMG_DIMS = img_dims
             data = self._npzLoader(database_path, filename)
             key_string = str(np.fromiter(data.keys(), (str, 15))).replace('\'', '').replace('\n', '').replace(' ', ', ')
-            print("[npzLoader] Success. Data found with keys: %s" % (key_string))
-            print("[npzDatabaseLoadSave] Success. Data with filename '%s' found with keys: %s" % (data['filename'], key_string))
+            self.print("[npzLoader] Success. Data found with keys: %s" % (key_string))
+            self.print("[npzDatabaseLoadSave] Success. Data with filename '%s' found with keys: %s" % (data['filename'], key_string))
         except Exception as e:
-            print("[WARN][npzDatabaseLoadSave] Load failed. Building normally.\nError: %s" % (e))
+            self.print("[WARN][npzDatabaseLoadSave] Load failed. Building normally.\nError: %s" % (e))
             self._img_info, self._odom = self.loadFull(img_path, odom_path, feat_type, img_dims)
+        
             if do_save:
-                print("[npzDatabaseLoadSave] Build success.")
+                self.print("[npzDatabaseLoadSave] Build success.")
                 self.save2npz(database_path, filename)
         return self._img_info, self._odom
     
@@ -128,7 +135,7 @@ class VPRImageProcessor: # main ROS class
         if not (self.IMAGES_LOADED):
             raise Exception("No images loaded. loadImageFeatures() must be performed before any save process can be performed.")
         if not (self.ODOM_LOADED):
-            print("[WARN][save2npz] No odometry loaded: rows will be empty.")
+            self.print("[WARN][save2npz] No odometry loaded: rows will be empty.")
         # ensure we don't double up on a ".npz":
         ext = os.path.splitext(filename)[-1].lower()
         if (ext == ".npz"):
@@ -141,10 +148,10 @@ class VPRImageProcessor: # main ROS class
         full_file_path = database_path + separator + filename + "_" + str(self.IMG_DIMS[1]) + ".npz"
         # perform save to compressed numpy file:
         try:
-            print("[save2npz] Saving data as '%s'." % (full_file_path))
+            self.print("[save2npz] Saving data as '%s'." % (full_file_path))
             np.savez(full_file_path, filename=full_file_path, ft=self.image_features, x=self.odom_x, y=self.odom_y, z=self.odom_z, odom_paths=self.odom_paths, image_paths=self.image_paths, fttype=self.FEAT_TYPE, imgdims=self.IMG_DIMS, odom_root=self.ODOM_PATH, image_root=self.IMG_PATH)
         except Exception as e:
-            print("[ERROR][save2npz] Unable to perform save operation. Check path.\nError: %s" % (e))
+            self.print("[ERROR][save2npz] Unable to perform save operation. Check path.\nError: %s" % (e))
 
     def clearImageVariables(self):
         self.IMG_PATH           = ""
@@ -164,6 +171,7 @@ class VPRImageProcessor: # main ROS class
     # Extract images and their features from path
     # Store in arrays and return them.
 
+        self.print("Attempting to process images from: %s" % (self.IMG_PATH))
         imPath_list = np.sort(os.listdir(self.IMG_PATH))
         imPath_list = [os.path.join(self.IMG_PATH, f) for f in imPath_list]
 
@@ -183,7 +191,7 @@ class VPRImageProcessor: # main ROS class
     # Returns feature arary, as a flattened array (size=1) or a flattened array reshaped to 2d matrix format (size=2).
 
         if dims is None:
-            if self.IMG_DIMS == (0,0):
+            if not (self.IMG_DIMS[0] > 0 and self.IMG_DIMS[1] > 0):
                 raise Exception("[ERROR][getFeat] Image dimension not set!")
             else:
                 dims = self.IMG_DIMS
@@ -241,6 +249,7 @@ class VPRImageProcessor: # main ROS class
     # Extract from position .csvs at path, robot x,y,z
     # Return these as nice lists
 
+        self.print("Attempting to process odometry from: %s" % (self.ODOM_PATH))
         odomPath_list = np.sort(os.listdir(self.ODOM_PATH))
         odomPath_list = [os.path.join(self.ODOM_PATH, f) for f in odomPath_list]
     
@@ -256,19 +265,19 @@ class VPRImageProcessor: # main ROS class
 
 ### Example usage:
 
-import rospkg
+# import rospkg
 
-PACKAGE_NAME    = 'aarapsi_intro_pack'
-SET_NAME        = "cw_loop"
-FEAT_TYPE       = FeatureType.RAW # Feature Type
-IMG_DIMS        = (64, 64)
-REF_IMG_PATH    = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/" + SET_NAME + "/forward"
-REF_ODOM_PATH   = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/" + SET_NAME + "/odo"
-DATABASE_PATH   = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/compressed_sets/"
+# PACKAGE_NAME    = 'aarapsi_intro_pack'
+# SET_NAME        = "cw_loop"
+# FEAT_TYPE       = FeatureType.RAW # Feature Type
+# IMG_DIMS        = (64, 64)
+# REF_IMG_PATH    = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/" + SET_NAME + "/forward"
+# REF_ODOM_PATH   = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/" + SET_NAME + "/odo"
+# DATABASE_PATH   = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/compressed_sets/"
 
-test = VPRImageProcessor()
-# test.loadImageFeatures(REF_IMG_PATH, FEAT_TYPE, IMG_DIMS)
-# test.loadOdometry(REF_ODOM_PATH)
-# test.save2npz(DATABASE_PATH, SET_NAME)
-# data = test.npzLoader(DATABASE_PATH, SET_NAME)
-ref_info, ref_odom = test.npzDatabaseLoadSave(DATABASE_PATH, SET_NAME, REF_IMG_PATH, REF_ODOM_PATH, FEAT_TYPE, IMG_DIMS, do_save=True)
+# test = VPRImageProcessor()
+# # test.loadImageFeatures(REF_IMG_PATH, FEAT_TYPE, IMG_DIMS)
+# # test.loadOdometry(REF_ODOM_PATH)
+# # test.save2npz(DATABASE_PATH, SET_NAME)
+# # data = test.npzLoader(DATABASE_PATH, SET_NAME)
+# ref_info, ref_odom = test.npzDatabaseLoadSave(DATABASE_PATH, SET_NAME, REF_IMG_PATH, REF_ODOM_PATH, FEAT_TYPE, IMG_DIMS, do_save=True)

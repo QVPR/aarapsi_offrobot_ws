@@ -8,11 +8,10 @@ import cv2
 import numpy as np
 import rospkg
 from matplotlib import pyplot as plt
-from enum import Enum
 
 from scipy.spatial.distance import cdist
 from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped # Our custom structures
-from aarapsi_intro_pack import VPRImageProcessor, Tolerance_Mode, labelImage, makeImage, \
+from aarapsi_intro_pack import VPRImageProcessor, Tolerance_Mode, FeatureType, labelImage, makeImage, \
                                 doMtrxFig, updateMtrxFig, doDVecFig, updateDVecFig, doOdomFig, updateOdomFig
 
 class mrc: # main ROS class
@@ -25,7 +24,7 @@ class mrc: # main ROS class
         self.rate_obj        = rospy.Rate(self.rate_num)
 
         #!# Tune Here:
-        self.FEAT_TYPE       = "downsampled_raw" # Feature Type
+        self.FEAT_TYPE       = FeatureType.RAW
         self.IMG_DIMS        = (32, 32)
         self.PACKAGE_NAME    = 'aarapsi_intro_pack'
         self.REF_DATA_NAME   = "ccw_loop"
@@ -46,9 +45,9 @@ class mrc: # main ROS class
 
         #!# Enable/Disable Features (Label topic will always be generated):
         self.DO_COMPRESS     = False
-        self.DO_PLOTTING     = False
-        self.MAKE_IMAGE      = False
-        self.GROUND_TRUTH    = False
+        self.DO_PLOTTING     = True
+        self.MAKE_IMAGE      = True
+        self.GROUND_TRUTH    = True
 
         self.ego                = [0.0, 0.0, 0.0] # robot position
 
@@ -67,8 +66,8 @@ class mrc: # main ROS class
             self.label_type     = CompressedImageLabelStamped
 
         if self.MAKE_IMAGE:
-            self.vpr_feed_pub   = rospy.Publisher("/vpr_simple/image" + self.img_tpc_mode, self.image_type, queue_size=1)
-        self.vpr_label_pub      = rospy.Publisher("/vpr_simple/image/label" + self.img_tpc_mode, self.label_type, queue_size=1)
+            self.vpr_feed_pub   = rospy.Publisher("/vpr_nodes/image" + self.img_tpc_mode, self.image_type, queue_size=1)
+        self.vpr_label_pub      = rospy.Publisher("/vpr_nodes/image/label" + self.img_tpc_mode, self.label_type, queue_size=1)
 
         if self.DO_PLOTTING:
             self.fig, self.axes = plt.subplots(1, 3, figsize=(15,4))

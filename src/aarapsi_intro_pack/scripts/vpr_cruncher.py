@@ -6,11 +6,10 @@ from sensor_msgs.msg import Image, CompressedImage
 from cv_bridge import CvBridge
 import numpy as np
 import rospkg
-from enum import Enum
 
 from scipy.spatial.distance import cdist
 from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped # Our custom structures
-from aarapsi_intro_pack import VPRImageProcessor, Tolerance_Mode
+from aarapsi_intro_pack import VPRImageProcessor, Tolerance_Mode, FeatureType
 
 class mrc: # main ROS class
     def __init__(self):
@@ -22,7 +21,7 @@ class mrc: # main ROS class
         self.rate_obj        = rospy.Rate(self.rate_num)
 
         #!# Tune Here:
-        self.FEAT_TYPE       = "downsampled_raw" # Feature Type
+        self.FEAT_TYPE       = FeatureType.RAW # Feature Type
         self.IMG_DIMS        = (32, 32)
         self.PACKAGE_NAME    = 'aarapsi_intro_pack'
         self.REF_DATA_NAME   = "ccw_loop"
@@ -61,7 +60,7 @@ class mrc: # main ROS class
             self.image_type     = CompressedImage
             self.label_type     = CompressedImageLabelStamped
 
-        self.vpr_label_pub      = rospy.Publisher("/vpr_simple/image/label" + self.img_tpc_mode, self.label_type, queue_size=1)
+        self.vpr_label_pub      = rospy.Publisher("/vpr_nodes/image/label" + self.img_tpc_mode, self.label_type, queue_size=1)
 
         # flags to denest main loop:
         self.new_query          = False

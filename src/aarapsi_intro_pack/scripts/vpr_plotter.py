@@ -7,10 +7,9 @@ import cv2
 import numpy as np
 import rospkg
 from matplotlib import pyplot as plt
-from enum import Enum
 
 from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped # Our custom structures
-from aarapsi_intro_pack import VPRImageProcessor, Tolerance_Mode, labelImage, makeImage, \
+from aarapsi_intro_pack import VPRImageProcessor, Tolerance_Mode, FeatureType, labelImage, makeImage, \
                                 doMtrxFig, updateMtrxFig, doDVecFig, updateDVecFig, doOdomFig, updateOdomFig
 
 class mrc: # main ROS class
@@ -23,7 +22,7 @@ class mrc: # main ROS class
         self.rate_obj        = rospy.Rate(self.rate_num)
 
         #!# Tune Here:
-        self.FEAT_TYPE       = "downsampled_raw" # Feature Type
+        self.FEAT_TYPE       = FeatureType.RAW # Feature Type
         self.PACKAGE_NAME    = 'aarapsi_intro_pack'
         self.REF_DATA_NAME   = "ccw_loop"
         self.DATABASE_PATH   = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/compressed_sets/"
@@ -58,8 +57,8 @@ class mrc: # main ROS class
             self.image_type     = CompressedImage
             self.label_type     = CompressedImageLabelStamped
 
-        self.vpr_feed_pub       = rospy.Publisher("/vpr_plotter/image" + self.img_tpc_mode, self.image_type, queue_size=1)
-        self.vpr_label_pub      = rospy.Subscriber("/vpr_simple/image/label" + self.img_tpc_mode, self.label_type, self.label_callback, queue_size=1)
+        self.vpr_feed_pub       = rospy.Publisher("/vpr_nodes/image" + self.img_tpc_mode, self.image_type, queue_size=1)
+        self.vpr_label_pub      = rospy.Subscriber("/vpr_nodes/image/label" + self.img_tpc_mode, self.label_type, self.label_callback, queue_size=1)
 
         self.fig, self.axes     = plt.subplots(1, 3, figsize=(15,4))
         self.timer_plot         = rospy.Timer(rospy.Duration(0.1), self.timer_plot_callback) # 10 Hz
