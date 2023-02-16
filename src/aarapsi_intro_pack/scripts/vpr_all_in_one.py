@@ -27,7 +27,7 @@ class mrc: # main ROS class
         self.FEAT_TYPE       = FeatureType.RAW
         self.IMG_DIMS        = (32, 32)
         self.PACKAGE_NAME    = 'aarapsi_intro_pack'
-        self.REF_DATA_NAME   = "ccw_loop"
+        self.REF_DATA_NAME   = "ccw_zeroed_20230208"
         self.DATABASE_PATH   = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/compressed_sets/"
         # Path where reference images are stored (names are sorted before reading):
         self.REF_IMG_PATH    = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/" + self.REF_DATA_NAME + "/forward"
