@@ -17,8 +17,8 @@ from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStampe
 
 from sklearn import svm
 from sklearn.preprocessing import StandardScaler
-from vpred_tools import *
-from vpred_factors import *
+from aarapsi_intro_pack.vpred_tools import *
+from aarapsi_intro_pack.vpred_factors import *
 
 class Tolerance_Mode(Enum):
     METRE_CROW_TRUE = 0
@@ -35,12 +35,6 @@ class mrc: # main ROS class
         self.rate_num        = 20.0 # Hz
         self.rate_obj        = rospy.Rate(self.rate_num)
 
-        self.REF_IMG_PATH    = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/ccw_loop/forward" # Path where reference images are stored
-        self.REF_ODOM_PATH   = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/ccw_loop/odo" # Path for where reference odometry .csv files are stored
-
-        self.CAL_IMG_PATH    = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/cw_loop/forward" # Path where calibration images are stored
-        self.CAL_ODOM_PATH   = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/cw_loop/odo" # Path for where calibration odometry .csv files are stored
-
         #!# Tune Here:
         self.PACKAGE_NAME    = 'aarapsi_intro_pack'
         self.FEED_TOPIC      = "/ros_indigosdk_occam/image0/compressed"
@@ -53,6 +47,12 @@ class mrc: # main ROS class
         self.IMG_DIMS        = (32, 32)
         self.MATCH_METRIC    = 'euclidean'
         self.TIME_HIST_LEN   = 20
+
+        self.REF_IMG_PATH    = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/ccw_loop/forward" # Path where reference images are stored
+        self.REF_ODOM_PATH   = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/ccw_loop/odo" # Path for where reference odometry .csv files are stored
+
+        self.CAL_IMG_PATH    = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/cw_loop/forward" # Path where calibration images are stored
+        self.CAL_ODOM_PATH   = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/cw_loop/odo" # Path for where calibration odometry .csv files are stored
 
 if __name__ == '__main__':
     try:
