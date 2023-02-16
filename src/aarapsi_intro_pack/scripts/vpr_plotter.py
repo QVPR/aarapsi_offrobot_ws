@@ -9,9 +9,9 @@ import rospkg
 from matplotlib import pyplot as plt
 from enum import Enum
 
-import os
-from tqdm import tqdm
 from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped # Our custom structures
+from aarapsi_intro_pack import VPRImageProcessor, labelImage, makeImage, \
+                                doMtrxFig, updateMtrxFig, doDVecFig, updateDVecFig, doOdomFig, updateOdomFig
 
 class Tolerance_Mode(Enum):
     METRE_CROW_TRUE = 0
@@ -74,14 +74,14 @@ class mrc: # main ROS class
         self.time_history       = []
 
         # Process reference data (only needs to be done once)
-        self.processRefOdomDataset(self.REF_ODOM_PATH)
-        self.processRefImageDataset(self.REF_IMG_PATH, self.FEAT_TYPE, self.IMG_DIMS)
+        self.image_processor    = VPRImageProcessor()
+        self.ref_info, self.ref_odom = self.image_processor.loadFull(self.REF_IMG_PATH, self.REF_ODOM_PATH, self.FEAT_TYPE, self.IMG_DIMS)
 
         # Prepare figures:
         self.fig.suptitle("Odometry Visualised")
-        doMtrxFig(self, axis=0) # Make simularity matrix figure
-        doDVecFig(self, axis=1) # Make distance vector figure
-        doOdomFig(self, axis=2) # Make odometry figure
+        self.fig_mtrx_handles = doMtrxFig(self.axes[0], self.ref_odom) # Make simularity matrix figure
+        self.fig_dvec_handles = doDVecFig(self.axes[1], self.ref_odom) # Make distance vector figure
+        self.fig_odom_handles = doOdomFig(self.axes[2], self.ref_odom) # Make odometry figure
         self.fig.show()
 
         self.ICON_DICT = {'size': self.ICON_SIZE, 'dist': self.ICON_DIST, 'icon': [], 'good': [], 'poor': []}
@@ -107,78 +107,6 @@ class mrc: # main ROS class
 
         self.do_show            = True
 
-    def patchNormaliseImage(self, img, patchLength):
-    # TODO: vectorize
-    # take input image, divide into regions, normalise
-    # returns: patch normalised image
-
-        img1 = img.astype(float)
-        img2 = img1.copy()
-        
-        if patchLength == 1: # single pixel; already p-n'd
-            return img2
-
-        for i in range(img1.shape[0]//patchLength): # floor division -> number of rows
-            iStart = i*patchLength
-            iEnd = (i+1)*patchLength
-            for j in range(img1.shape[1]//patchLength): # floor division -> number of cols
-                jStart = j*patchLength
-                jEnd = (j+1)*patchLength
-
-                mean1 = np.mean(img1[iStart:iEnd, jStart:jEnd])
-                std1 = np.std(img1[iStart:iEnd, jStart:jEnd])
-
-                img2[iStart:iEnd, jStart:jEnd] = img1[iStart:iEnd, jStart:jEnd] - mean1 # offset remove mean
-                if std1 == 0:
-                    std1 = 0.1
-                img2[iStart:iEnd, jStart:jEnd] /= std1 # crush by std
-
-        return img2
-
-    def getFeat(self, im, ftType, imDims):
-        im = cv2.resize(im, imDims)
-        ft = cv2.cvtColor(im, cv2.COLOR_RGB2GRAY)
-        if ftType == "downsampled_raw":
-            pass # already done
-        elif ftType == "downsampled_patchNorm":
-            ft = self.patchNormaliseImage(ft, 8)
-        return ft.flatten()
-
-    def processRefImageDataset(self, path, ftType, imDims): 
-    # Extract images and their features from path
-    # Store in arrays and return them.
-
-        imPath_list = np.sort(os.listdir(path))
-        imPath_list = [os.path.join(path, f) for f in imPath_list]
-
-        self.ref_info = {'paths': imPath_list, 'fts': []}
-
-        if len(imPath_list) > 0:
-            for i, imPath in tqdm(enumerate(imPath_list)):
-                frame = cv2.imread(imPath)[:, :, ::-1]
-                feat = self.getFeat(frame, ftType, imDims) # ftType: 'downsampled_patchNorm' or 'downsampled_raw'
-                self.ref_info['fts'].append(feat)
-        else:
-            rospy.logerr("Error: No files at reference image path - cannot continue.")
-            raise Exception()
-    
-    def processRefOdomDataset(self, path):
-    # Extract from position .csvs at path, robot x,y,z
-    # Return these as nice lists
-
-        self.ref_odom = {'x': [], 'y': [], 'z': []}
-        odomPath_list = np.sort(os.listdir(path))
-        odomPath_list = [os.path.join(path, f) for f in odomPath_list]
-        if len(odomPath_list) > 0:
-            for i, odomPath in tqdm(enumerate(odomPath_list)):
-                odom = np.loadtxt(odomPath, delimiter=',')
-                self.ref_odom['x'].append(odom[0])
-                self.ref_odom['y'].append(odom[1])
-                self.ref_odom['z'].append(odom[2])
-        else:
-            rospy.logerr("Error: No files at reference odometry path - cannot continue.")
-            raise Exception()
-
     def publish_ros_info(self, cv2_img, fid):
         if self.DO_COMPRESS:
             ros_image_to_pub = self.bridge.cv2_to_compressed_imgmsg(cv2_img, "jpg") # jpg (png slower)
@@ -189,136 +117,6 @@ class mrc: # main ROS class
         ros_image_to_pub.header.frame_id = fid
 
         self.vpr_feed_pub.publish(ros_image_to_pub)
-
-##################################################################
-#### Similarity Matrix Figure: do and update
-
-def doMtrxFig(nmrc, axis):
-    plt.sca(nmrc.axes[axis])
-    mtrx_image = np.zeros((len(nmrc.ref_odom['x']), len(nmrc.ref_odom['x'])))
-    mtrx_handle = nmrc.axes[axis].imshow(mtrx_image)
-    nmrc.axes[axis].set(xlabel='Query Frame', ylabel='Reference Frame')
-
-    nmrc.fig_mtrx_handles = {'img': mtrx_image, 'handle': mtrx_handle}
-
-def updateMtrxFig(nmrc, mInd, tInd, dvc):
-    img_new = np.delete(nmrc.fig_mtrx_handles['img'], 0, 1) # delete first column (oldest query)
-    nmrc.fig_mtrx_handles['img'] = np.concatenate((img_new, np.array(dvc)), 1)
-    nmrc.fig_mtrx_handles['handle'].set_data(nmrc.fig_mtrx_handles['img'])
-    nmrc.fig_mtrx_handles['handle'].autoscale() # https://stackoverflow.com/questions/10970492/matplotlib-no-effect-of-set-data-in-imshow-for-the-plot
-
-##################################################################
-#### Distance Vector Figure: do and update
-
-def doDVecFig(nmrc, axis):
-# Set up distance vector figure
-# https://www.geeksforgeeks.org/data-visualization-using-matplotlib/
-# https://matplotlib.org/stable/gallery/subplots_axes_and_figures/subplots_demo.html
-
-    plt.sca(nmrc.axes[axis]) # distance vector
-    dist_vector = plt.plot([], [], 'k-')[0] # distance vector
-    lowest_dist = plt.plot([], [], 'ro', markersize=7)[0] # matched image (lowest distance)
-    actual_dist = plt.plot([], [], 'mo', markersize=7)[0] # true image (correct match)
-    nmrc.axes[axis].set(xlabel='Index', ylabel='Distance')
-    nmrc.axes[axis].legend(["Image Distances", "Selected", "True"])
-    nmrc.axes[axis].set_xlim(0, len(nmrc.ref_odom['x']))
-    nmrc.axes[axis].set_ylim(0, 1.2)
-
-    nmrc.fig_dvec_handles = {'axis': axis, 'dis': dist_vector, 'low': lowest_dist, 'act': actual_dist}
-
-def updateDVecFig(nmrc, mInd, tInd, dvc):
-# Update DVec figure with new data (match->mInd, true->tInd)
-# update (overwrite) visualisation with new data:
-
-    # overwrite with new distance vector / image distance:
-    max_val = max(dvc[:])
-    nmrc.fig_dvec_handles['dis'].set_xdata(range(len(dvc)))
-    nmrc.fig_dvec_handles['dis'].set_ydata(dvc/max_val)
-    # overwrite with new lowest match:
-    nmrc.fig_dvec_handles['low'].set_xdata(mInd)
-    nmrc.fig_dvec_handles['low'].set_ydata(dvc[mInd]/max_val)
-    # overwrite with new truth value:
-    nmrc.fig_dvec_handles['act'].set_xdata(tInd)
-    nmrc.fig_dvec_handles['act'].set_ydata(dvc[tInd]/max_val)
-
-##################################################################
-#### Odometry Figure: do and update
-
-def doOdomFig(nmrc, axis):
-# Set up odometry figure
-
-    plt.sca(nmrc.axes[axis])
-    ref_plotted = plt.plot(nmrc.ref_odom['x'], nmrc.ref_odom['y'], 'b-')[0]
-    mat_plotted = plt.plot([], [], 'r+', markersize=6)[0] # Match values: init as empty
-    tru_plotted = plt.plot([], [], 'gx', markersize=4)[0] # True value: init as empty
-
-    nmrc.axes[axis].set(xlabel='X-Axis', ylabel='Y-Axis')
-    nmrc.axes[axis].legend(["Reference", "Match", "True"])
-    nmrc.axes[axis].set_aspect('equal')
-
-    nmrc.fig_odom_handles = {'axis': axis, 'ref': ref_plotted, 'mat': mat_plotted, 'tru': tru_plotted}
-
-def updateOdomFig(nmrc, mInd, tInd):
-# Update odometryfigure with new data (match->mInd, true->tInd)
-# Use old handles (reference, match, true)
-    # Only display last 'queries_keep' number of points
-    num_queries = len(list(nmrc.fig_odom_handles['tru'].get_xdata()))
-    queries_keep = 10
-    start_ind = num_queries - queries_keep + 1
-    if num_queries < queries_keep:
-        start_ind = 0
-        
-    ## odometry plot:
-    # Append new value for "match" (what it matched the image to)
-    nmrc.fig_odom_handles['mat'].set_xdata(np.append(nmrc.fig_odom_handles['mat'].get_xdata()[start_ind:num_queries], nmrc.ref_odom['x'][mInd]))
-    nmrc.fig_odom_handles['mat'].set_ydata(np.append(nmrc.fig_odom_handles['mat'].get_ydata()[start_ind:num_queries], nmrc.ref_odom['y'][mInd]))
-    # Append new value for "true" (what it should be from the robot odom)
-    nmrc.fig_odom_handles['tru'].set_xdata(np.append(nmrc.fig_odom_handles['tru'].get_xdata()[start_ind:num_queries], nmrc.ref_odom['x'][tInd]))
-    nmrc.fig_odom_handles['tru'].set_ydata(np.append(nmrc.fig_odom_handles['tru'].get_ydata()[start_ind:num_queries], nmrc.ref_odom['y'][tInd]))
-
-##################################################################
-#### Image Tools:
-
-def labelImage(img_in, textstring, org_in, colour):
-# Write textstring at position org_in, with colour and black border on img_in
-
-    # Black border:
-    img_A = cv2.putText(img_in, textstring, org=org_in, fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1, \
-                                color=(0,0,0), thickness=7, lineType=cv2.LINE_AA)
-    # Colour inside:
-    img_B = cv2.putText(img_A, textstring, org=org_in, fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1, \
-                                color=colour, thickness=2, lineType=cv2.LINE_AA)
-    return img_B
-
-def makeImage(query_raw, match_path, icon_to_use, icon_size=100, icon_dist=0):
-# Produce image to be published via ROS
-
-    match_img = cv2.imread(match_path)
-    query_img = cv2.resize(query_raw, (match_img.shape[1], match_img.shape[0]), interpolation = cv2.INTER_AREA) # resize to match_img dimensions
-    
-    match_img_lab = labelImage(match_img, "Reference", (20,40), (100,255,100))
-    query_img_lab = labelImage(query_img, "Query", (20,40), (100,255,100))
-
-    if icon_size > 0:
-        # Add Icon:
-        img_slice = match_img_lab[-1 - icon_size - icon_dist:-1 - icon_dist, -1 - icon_size - icon_dist:-1 - icon_dist, :]
-        # https://docs.opencv.org/3.4/da/d97/tutorial_threshold_inRange.html
-        icon_mask_inv = cv2.inRange(icon_to_use, (50,50,50), (255,255,255)) # get border (white)
-        icon_mask = 255 - icon_mask_inv # get shape
-        icon_mask_stack_inv = cv2.merge([icon_mask_inv, icon_mask_inv, icon_mask_inv]) / 255 # stack into rgb layers, binary image
-        icon_mask_stack = cv2.merge([icon_mask, icon_mask, icon_mask]) / 255 # stack into rgb layers, binary image
-        opacity_icon = 0.8 # 80%
-        # create new slice with appropriate layering
-        img_slice = (icon_mask_stack_inv * img_slice) + \
-                    (icon_mask_stack * icon_to_use) * (opacity_icon) + \
-                    (icon_mask_stack * img_slice) * (1-opacity_icon)
-        match_img_lab[-1 - icon_size - icon_dist:-1 - icon_dist, -1 - icon_size - icon_dist:-1 - icon_dist, :] = img_slice
-
-    return np.concatenate((match_img_lab, query_img_lab), axis=1)
-
-##################################################################
-############################ MAIN ################################
-##################################################################
 
 def main_loop(nmrc):
 # Main loop process
@@ -371,9 +169,9 @@ def main_loop(nmrc):
         nmrc.ICON_DICT['size'] = -1
 
     # Update odometry visualisation:
-    updateDVecFig(nmrc, matchInd, trueInd, dvc)
-    updateOdomFig(nmrc, matchInd, trueInd)
-    updateMtrxFig(nmrc, matchInd, trueInd, dvc)
+    updateMtrxFig(matchInd, trueInd, dvc, nmrc.ref_odom, nmrc.fig_mtrx_handles)
+    updateDVecFig(matchInd, trueInd, dvc, nmrc.ref_odom, nmrc.fig_dvec_handles)
+    updateOdomFig(matchInd, trueInd, dvc, nmrc.ref_odom, nmrc.fig_odom_handles)
 
     cv2_image_to_pub = makeImage(query_cv2, nmrc.ref_info['paths'][matchInd], \
                                     nmrc.ICON_DICT['icon'], icon_size=nmrc.ICON_DICT['size'], icon_dist=nmrc.ICON_DICT['dist'])

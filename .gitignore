@@ -5,3 +5,4 @@ aarapsi_offrobot_ws.code-workspace
 .vscode/
 src/aarapsi_intro_pack/data/
 .prof
+__pycache__
