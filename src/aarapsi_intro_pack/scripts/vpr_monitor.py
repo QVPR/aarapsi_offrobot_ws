@@ -19,12 +19,7 @@ from sklearn import svm
 from sklearn.preprocessing import StandardScaler
 from aarapsi_intro_pack.vpred_tools import *
 from aarapsi_intro_pack.vpred_factors import *
-
-class Tolerance_Mode(Enum):
-    METRE_CROW_TRUE = 0
-    METRE_CROW_MATCH = 1
-    METRE_LINE = 2
-    FRAME = 3
+from aarapsi_intro_pack import Tolerance_Mode
 
 class mrc: # main ROS class
     def __init__(self):
@@ -53,6 +48,9 @@ class mrc: # main ROS class
 
         self.CAL_IMG_PATH    = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/cw_loop/forward" # Path where calibration images are stored
         self.CAL_ODOM_PATH   = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/cw_loop/odo" # Path for where calibration odometry .csv files are stored
+
+def main_loop(nmrc):
+    pass
 
 if __name__ == '__main__':
     try:

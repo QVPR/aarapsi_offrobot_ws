@@ -12,14 +12,8 @@ from enum import Enum
 
 from scipy.spatial.distance import cdist
 from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped # Our custom structures
-from aarapsi_intro_pack import VPRImageProcessor, labelImage, makeImage, \
+from aarapsi_intro_pack import VPRImageProcessor, Tolerance_Mode, labelImage, makeImage, \
                                 doMtrxFig, updateMtrxFig, doDVecFig, updateDVecFig, doOdomFig, updateOdomFig
-
-class Tolerance_Mode(Enum):
-    METRE_CROW_TRUE = 0
-    METRE_CROW_MATCH = 1
-    METRE_LINE = 2
-    FRAME = 3
 
 class mrc: # main ROS class
     def __init__(self):
@@ -34,8 +28,12 @@ class mrc: # main ROS class
         self.FEAT_TYPE       = "downsampled_raw" # Feature Type
         self.IMG_DIMS        = (32, 32)
         self.PACKAGE_NAME    = 'aarapsi_intro_pack'
-        self.REF_IMG_PATH    = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/ccw_loop/forward" # Path where reference images are stored (names are sorted before reading)
-        self.REF_ODOM_PATH   = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/ccw_loop/odo" # Path for where odometry .csv files are stored
+        self.REF_DATA_NAME   = "ccw_loop"
+        self.DATABASE_PATH   = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/compressed_sets/"
+        # Path where reference images are stored (names are sorted before reading):
+        self.REF_IMG_PATH    = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/" + self.REF_DATA_NAME + "/forward"
+        # Path for where odometry .csv files are stored: 
+        self.REF_ODOM_PATH   = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/" + self.REF_DATA_NAME + "/odo" 
         self.FEED_TOPIC      = "/ros_indigosdk_occam/image0/compressed"
         self.ODOM_TOPIC      = "/odometry/filtered"
         self.TOL_MODE        = Tolerance_Mode.METRE_LINE
@@ -87,7 +85,9 @@ class mrc: # main ROS class
 
         # Process reference data (only needs to be done once)
         self.image_processor    = VPRImageProcessor()
-        self.ref_info, self.ref_odom = self.image_processor.loadFull(self.REF_IMG_PATH, self.REF_ODOM_PATH, self.FEAT_TYPE, self.IMG_DIMS)
+        self.ref_info, self.ref_odom = self.image_processor.npzDatabaseLoadSave(self.DATABASE_PATH, self.REF_DATA_NAME, \
+                                                                                self.REF_IMG_PATH, self.REF_ODOM_PATH, \
+                                                                                self.FEAT_TYPE, self.IMG_DIMS, do_save=True)
 
         if self.DO_PLOTTING:
             # Prepare figures:

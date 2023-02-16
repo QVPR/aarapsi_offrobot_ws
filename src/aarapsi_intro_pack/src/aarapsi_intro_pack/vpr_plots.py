@@ -15,7 +15,7 @@ def doMtrxFig(axes, odom_in):
 def updateMtrxFig(mInd, tInd, dvc, odom_in, fig_handles):
     img_new = np.delete(fig_handles['img'], 0, 1) # delete first column (oldest query)
     fig_handles['img'] = np.concatenate((img_new, np.array(dvc)), 1)
-    fig_handles['handle'].set_data(fig_handles['img'])
+    fig_handles['handle'].set_data(fig_handles['img']) # TODO: access directly.
     fig_handles['handle'].autoscale() # https://stackoverflow.com/questions/10970492/matplotlib-no-effect-of-set-data-in-imshow-for-the-plot
 
 ##################################################################

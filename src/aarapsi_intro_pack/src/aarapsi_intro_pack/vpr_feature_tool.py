@@ -2,6 +2,7 @@
 import numpy as np
 import os
 import cv2
+import pickle
 from enum import Enum
 from tqdm import tqdm
 
@@ -28,6 +29,7 @@ class VPRImageProcessor: # main ROS class
         try:
             self.processImageDataset()
             self.image_features = list(self._img_info['fts'])
+            self.image_paths = list(self._img_info['paths'])
             if not self.image_features: # if empty
                 raise Exception("Output is empty. Check inputs.")
             self.IMAGES_LOADED = True
@@ -41,41 +43,106 @@ class VPRImageProcessor: # main ROS class
         self.ODOM_PATH = odom_path
         try:
             self.processOdomDataset()
-            self.image_odom_x = list(self._odom['x'])
-            self.image_odom_y = list(self._odom['y'])
-            self.image_odom_z = list(self._odom['z'])
-            if not (self.image_odom_x and self.image_odom_y): # if empty
+            self.odom_x = list(self._odom['x'])
+            self.odom_y = list(self._odom['y'])
+            self.odom_z = list(self._odom['z'])
+            self.odom_paths = list(self._odom['paths'])
+            if not (self.odom_x and self.odom_y): # if empty
                 raise Exception("Output is empty. Check inputs.")
-            if not (self.image_odom_z): # may not exist
+            if not (self.odom_z): # may not exist
                 print("[WARN][loadOdometry] Odometry has no z values.")
             self.ODOM_LOADED = True
-            return self.image_odom_x, self.image_odom_y, self.image_odom_z
+            return self.odom_x, self.odom_y, self.odom_z
         except Exception as e:
             print("[ERROR][loadOdometry] Unable to interpret, failed. Check variables.\nEnsure: odom_path is a valid string.\nError: %s" % (e))
             self.clearOdomVariables()
             return [], [], []
+        
+    def _npzLoader(self, database_path, filename):
+    # Private method, embedded in public methods
+        # https://stackoverflow.com/questions/5899497/how-can-i-check-the-extension-of-a-file
+        ext = os.path.splitext(filename)[-1].lower()
+        if (ext == ".npz"):
+            filename = filename[0:-4]
+        elif (ext == ""):
+            pass
+        elif not (ext == ".npz"):
+            raise Exception("File is not of type .npz!")
+        # ensure we don't double up on a "/":
+        separator = ""
+        if not (database_path[-1] == "/"):
+            separator = "/"
+        # gemerate new full path to save to:
+        full_file_path = database_path + separator + filename + "_" + str(self.IMG_DIMS[1]) + ".npz"
 
-    def npzLoader(self, filename):
+        data = np.load(full_file_path, allow_pickle=True)
+
+        # update class attributes:
+        self._img_info = {'paths': data['image_paths'], 'fts': data['ft']}
+        self._odom = {'paths': data['odom_paths'], 'x': data['x'], 'y': data['y'], 'z': data['z']}
+
+        self.odom_x = list(data['x'])
+        self.odom_y = list(data['y'])
+        self.odom_z = list(data['z'])
+        self.odom_paths = list(data['odom_paths'])
+
+        self.FEAT_TYPE = data['fttype']
+        self.IMG_DIMS = data['imgdims']
+        self.image_features = list(data['ft'])
+        self.image_paths = list(data['image_paths'])
+
+        self.ODOM_LOADED = (self.odom_paths == True)
+        self.IMAGES_LOADED = (self.image_paths == True)
+
+        self.ODOM_PATH = data['odom_root']
+        self.IMG_PATH = data['image_root']
+
+        return data
+
+    def npzLoader(self, database_path, filename):
         try:
-            # https://stackoverflow.com/questions/5899497/how-can-i-check-the-extension-of-a-file
-            ext = os.path.splitext(filename)[-1].lower()
-            if ext == "":
-                filename = filename + '.npz'
-            elif not (ext == ".npz"):
-                raise Exception("File is not of type .npz!")
-            data = np.load(filename)
-            print("[npzLoader] Success. Data found with keys: " + str(np.fromiter(data.keys(), (str, 10))))
+            data = self._npzLoader(database_path, filename)
+            key_string = str(np.fromiter(data.keys(), (str, 15))).replace('\'', '').replace('\n', '').replace(' ', ', ')
+            print("[npzLoader] Success. Data found with keys: %s" % (key_string))
             return data
         except Exception as e:
             print("[ERROR][npzLoader] Load failed. Check path and file name is correct.\nError: %s" % (e))
+
+    def npzDatabaseLoadSave(self, database_path, filename, img_path, odom_path, feat_type, img_dims, do_save=False):
+        try:
+            self.IMG_DIMS = img_dims
+            data = self._npzLoader(database_path, filename)
+            key_string = str(np.fromiter(data.keys(), (str, 15))).replace('\'', '').replace('\n', '').replace(' ', ', ')
+            print("[npzLoader] Success. Data found with keys: %s" % (key_string))
+            print("[npzDatabaseLoadSave] Success. Data with filename '%s' found with keys: %s" % (data['filename'], key_string))
+        except Exception as e:
+            print("[WARN][npzDatabaseLoadSave] Load failed. Building normally.\nError: %s" % (e))
+            self._img_info, self._odom = self.loadFull(img_path, odom_path, feat_type, img_dims)
+            if do_save:
+                print("[npzDatabaseLoadSave] Build success.")
+                self.save2npz(database_path, filename)
+        return self._img_info, self._odom
     
-    def save2npz(self, filename):
+    def save2npz(self, database_path, filename):
+        # check we have stuff to save:
         if not (self.IMAGES_LOADED):
             raise Exception("No images loaded. loadImageFeatures() must be performed before any save process can be performed.")
         if not (self.ODOM_LOADED):
             print("[WARN][save2npz] No odometry loaded: rows will be empty.")
+        # ensure we don't double up on a ".npz":
+        ext = os.path.splitext(filename)[-1].lower()
+        if (ext == ".npz"):
+            filename = filename[0:-4]
+        # ensure we don't double up on a "/":
+        separator = ""
+        if not (database_path[-1] == "/"):
+            separator = "/"
+        # gemerate new full path to save to:
+        full_file_path = database_path + separator + filename + "_" + str(self.IMG_DIMS[1]) + ".npz"
+        # perform save to compressed numpy file:
         try:
-            np.savez(filename, ft=self.image_features, x=self.image_odom_x, y=self.image_odom_y, z=self.image_odom_z, odompath=self.ODOM_PATH, imgpath=self.IMG_PATH, fttype=self.FEAT_TYPE, imgdims=self.IMG_DIMS)
+            print("[save2npz] Saving data as '%s'." % (full_file_path))
+            np.savez(full_file_path, filename=full_file_path, ft=self.image_features, x=self.odom_x, y=self.odom_y, z=self.odom_z, odom_paths=self.odom_paths, image_paths=self.image_paths, fttype=self.FEAT_TYPE, imgdims=self.IMG_DIMS, odom_root=self.ODOM_PATH, image_root=self.IMG_PATH)
         except Exception as e:
             print("[ERROR][save2npz] Unable to perform save operation. Check path.\nError: %s" % (e))
 
@@ -87,11 +154,11 @@ class VPRImageProcessor: # main ROS class
         self.IMAGES_LOADED      = False
 
     def clearOdomVariables(self):
-        self.ODOM_PATH      = ""
-        self.image_odom_x   = []
-        self.image_odom_y   = []
-        self.image_odom_z   = []
-        self.ODOM_LOADED    = False
+        self.ODOM_PATH          = ""
+        self.odom_x             = []
+        self.odom_y             = []
+        self.odom_z             = []
+        self.ODOM_LOADED        = False
 
     def processImageDataset(self): 
     # Extract images and their features from path
@@ -189,17 +256,19 @@ class VPRImageProcessor: # main ROS class
 
 ### Example usage:
 
-# import rospkg
+import rospkg
 
-# PACKAGE_NAME    = 'aarapsi_intro_pack'
-# REF_IMG_PATH    = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/ccw_loop/forward"
-# REF_ODOM_PATH   = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/ccw_loop/odo"
-# SAVE_PATH       = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/test.npz"
-# FEAT_TYPE       = FeatureType.RAW # Feature Type
-# IMG_DIMS        = (32, 32)
+PACKAGE_NAME    = 'aarapsi_intro_pack'
+SET_NAME        = "cw_loop"
+FEAT_TYPE       = FeatureType.RAW # Feature Type
+IMG_DIMS        = (64, 64)
+REF_IMG_PATH    = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/" + SET_NAME + "/forward"
+REF_ODOM_PATH   = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/" + SET_NAME + "/odo"
+DATABASE_PATH   = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/compressed_sets/"
 
-# test = VPRImageProcessor()
+test = VPRImageProcessor()
 # test.loadImageFeatures(REF_IMG_PATH, FEAT_TYPE, IMG_DIMS)
 # test.loadOdometry(REF_ODOM_PATH)
-# test.save2npz(SAVE_PATH)
-# data = test.npzLoader(SAVE_PATH)
+# test.save2npz(DATABASE_PATH, SET_NAME)
+# data = test.npzLoader(DATABASE_PATH, SET_NAME)
+ref_info, ref_odom = test.npzDatabaseLoadSave(DATABASE_PATH, SET_NAME, REF_IMG_PATH, REF_ODOM_PATH, FEAT_TYPE, IMG_DIMS, do_save=True)
