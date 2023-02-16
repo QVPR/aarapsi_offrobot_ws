@@ -112,12 +112,18 @@ def odom_multiimage_processor():
         rospy.logwarn("Continuing...")
 
     # Make subfolders:
-    Path(path_for_dataset + '/forward/').mkdir(parents=True, exist_ok=True)
     Path(path_for_dataset + '/left/').mkdir(parents=True, exist_ok=True)
+    Path(path_for_dataset + '/forward/').mkdir(parents=True, exist_ok=True)
     Path(path_for_dataset + '/right/').mkdir(parents=True, exist_ok=True)
+
+    Path(path_for_dataset + '/left_corrected/').mkdir(parents=True, exist_ok=True)
+    Path(path_for_dataset + '/forward_corrected/').mkdir(parents=True, exist_ok=True)
+    Path(path_for_dataset + '/right_corrected/').mkdir(parents=True, exist_ok=True)
+
     Path(path_for_dataset + '/leftmerge/').mkdir(parents=True, exist_ok=True)
     Path(path_for_dataset + '/rightmerge/').mkdir(parents=True, exist_ok=True)
     Path(path_for_dataset + '/panorama/').mkdir(parents=True, exist_ok=True)
+
     Path(path_for_dataset + '/odo/').mkdir(parents=True, exist_ok=True)
 
     rospy.loginfo("Ready, listening...")
@@ -173,20 +179,25 @@ def odom_multiimage_processor():
         cam2[1,1] = 10.        # define focal length y
 
         ## perform distortion removal:
-        crrctd_left = cv2.undistort(nmrc.store_img_left, cam1, distCoeff1)
-        crrctd_frwd = cv2.undistort(nmrc.store_img_frwd, cam1, distCoeff1)
-        crrctd_rght = cv2.undistort(nmrc.store_img_rght, cam2, distCoeff2)
+        crrctd_left = cv2.undistort(nmrc.store_img_left, cam1, distCoeff1)[20:-5, :]
+        crrctd_frwd = cv2.undistort(nmrc.store_img_frwd, cam1, distCoeff1)[20:-5, :]
+        crrctd_rght = cv2.undistort(nmrc.store_img_rght, cam2, distCoeff2)[20:-5, :]
 
         ## set shorthands for all file paths:
         left_image = path_for_dataset + '/left/frame_id_{}.png'.format(str(nmrc.frame_n).zfill(6))
         frwd_image = path_for_dataset + '/forward/frame_id_{}.png'.format(str(nmrc.frame_n).zfill(6))   
         rght_image = path_for_dataset + '/right/frame_id_{}.png'.format(str(nmrc.frame_n).zfill(6))  
+
+        left_crrct = path_for_dataset + '/left_corrected/frame_id_{}.png'.format(str(nmrc.frame_n).zfill(6))
+        frwd_crrct = path_for_dataset + '/forward_corrected/frame_id_{}.png'.format(str(nmrc.frame_n).zfill(6))   
+        rght_crrct = path_for_dataset + '/right_corrected/frame_id_{}.png'.format(str(nmrc.frame_n).zfill(6))  
+
         pnrm_image = path_for_dataset + '/panorama/frame_id_{}.png'.format(str(nmrc.frame_n).zfill(6))
         left_merge = path_for_dataset + '/leftmerge/frame_id_{}.png'.format(str(nmrc.frame_n).zfill(6))  
         rght_merge = path_for_dataset + '/rightmerge/frame_id_{}.png'.format(str(nmrc.frame_n).zfill(6))
 
         ## create panoramic image:
-        crrctd_pnrm = np.concatenate((crrctd_left[20:-5, 80:-19], crrctd_frwd[20:-5, 20:-19], crrctd_rght[20:-5, 100:(crrctd_rght.shape[1]-1)]), axis=1)
+        crrctd_pnrm = np.concatenate((crrctd_left[:, 80:-19], crrctd_frwd[:, 20:-19], crrctd_rght[:, 100:(crrctd_rght.shape[1]-1)]), axis=1)
 
         ## create left/right merge images using extractions from panorama:
         dm_ol   = 2.0/3.0                       # decimal overlap, include two thirds of middle frame
@@ -201,11 +212,17 @@ def odom_multiimage_processor():
         left_img_merge = crrctd_pnrm[:, left_img_left_bound : left_img_rght_bound]
         rght_img_merge = crrctd_pnrm[:, rght_img_left_bound : rght_img_rght_bound]
 
-        ## Save images to folders: Left, Forward, Right, Panorama, Left+Forward Merge, Forward+Right Merge
-        cv2.imwrite(left_image, crrctd_left[20:-5, :]) # or nmrc.store_img_left for uncorrected.
-        cv2.imwrite(frwd_image, crrctd_frwd[20:-5, :]) # or nmrc.store_img_frwd for uncorrected.
-        cv2.imwrite(rght_image, crrctd_rght[20:-5, :]) # or nmrc.store_img_rght for uncorrected.
-        cv2.imwrite(pnrm_image, crrctd_pnrm[20:-5, :])
+        ## Save images to folders: 
+        # Left/Forward/Right
+        cv2.imwrite(left_image, nmrc.store_img_left) 
+        cv2.imwrite(frwd_image, nmrc.store_img_frwd) 
+        cv2.imwrite(rght_image, nmrc.store_img_rght) 
+        # Left/Forward/Right Corrected
+        cv2.imwrite(left_crrct, crrctd_left)
+        cv2.imwrite(frwd_crrct, crrctd_frwd)
+        cv2.imwrite(rght_crrct, crrctd_rght)
+        # Panorama, Left+Forward/Forward+Right Merge
+        cv2.imwrite(pnrm_image, crrctd_pnrm)
         cv2.imwrite(left_merge, left_img_merge)
         cv2.imwrite(rght_merge, rght_img_merge)
 
