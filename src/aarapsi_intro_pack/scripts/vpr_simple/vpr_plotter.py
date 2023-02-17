@@ -18,31 +18,31 @@ class mrc: # main ROS class
         rospy.init_node('vpr_plotter', anonymous=True)
         rospy.loginfo('Starting vpr_plotter node.')
 
-        self.rate_num        = 20.0 # Hz, maximum of between 21-26 Hz (varies) with no plotting/image/ground truth/compression.
-        self.rate_obj        = rospy.Rate(self.rate_num)
+        self.rate_num           = 20.0 # Hz, maximum of between 21-26 Hz (varies) with no plotting/image/ground truth/compression.
+        self.rate_obj           = rospy.Rate(self.rate_num)
 
         #!# Tune Here:
-        self.FEAT_TYPE       = FeatureType.RAW # Feature Type
-        self.PACKAGE_NAME    = 'aarapsi_intro_pack'
-        self.REF_DATA_NAME   = "ccw_loop"
-        self.DATABASE_PATH   = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/compressed_sets/"
+        self.FEAT_TYPE          = FeatureType.RAW # Feature Type
+        self.PACKAGE_NAME       = 'aarapsi_intro_pack'
+        self.REF_DATA_NAME      = "cw_zeroed"
+        self.IMG_DIMS           = (64, 64)
+        self.DATABASE_PATH      = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/compressed_sets/"
         # Path where reference images are stored (names are sorted before reading):
-        self.REF_IMG_PATH    = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/" + self.REF_DATA_NAME + "/forward"
+        self.REF_IMG_PATH       = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/" + self.REF_DATA_NAME + "/forward"
         # Path for where odometry .csv files are stored: 
-        self.REF_ODOM_PATH   = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/" + self.REF_DATA_NAME + "/odo" 
-        self.FEED_TOPIC      = "/ros_indigosdk_occam/image0/compressed"
-        self.ODOM_TOPIC      = "/odometry/filtered"
-        self.TOL_MODE        = Tolerance_Mode.METRE_LINE
-        self.TOL_THRES       = 5.0
-        self.FRAME_ID        = "base_link"
-        self.ICON_SIZE       = 50
-        self.ICON_DIST       = 20
-        self.IMG_DIMS        = (32, 32)
-        self.TIME_HIST_LEN   = 20
+        self.REF_ODOM_PATH      = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/" + self.REF_DATA_NAME + "/odo" 
+        self.FEED_TOPIC         = "/ros_indigosdk_occam/image0/compressed"
+        self.ODOM_TOPIC         = "/odometry/filtered"
+        self.TOL_MODE           = Tolerance_Mode.METRE_LINE
+        self.TOL_THRES          = 5.0
+        self.FRAME_ID           = "base_link"
+        self.ICON_SIZE          = 50
+        self.ICON_DIST          = 20
+        self.TIME_HIST_LEN      = 20
 
         #!# Enable/Disable Features (Label topic will always be generated):
-        self.DO_COMPRESS     = False
-        self.GROUND_TRUTH    = True
+        self.DO_COMPRESS        = False
+        self.GROUND_TRUTH       = True
 
         self.ego                = [0.0, 0.0, 0.0] # robot position
 
@@ -75,6 +75,10 @@ class mrc: # main ROS class
         self.ref_info, self.ref_odom = self.image_processor.npzDatabaseLoadSave(self.DATABASE_PATH, self.REF_DATA_NAME, \
                                                                                 self.REF_IMG_PATH, self.REF_ODOM_PATH, \
                                                                                 self.FEAT_TYPE, self.IMG_DIMS, do_save=True)
+        if self.image_processor.EXTENDED_MODE == True:
+            rospy.logwarn("Data set was an extended set, but this node only supports basic sets. Reducing to basic set.")
+            self.ref_info = {'fts': self.image_processor.image_features['forward_corrected'], \
+                             'paths': self.image_processor.image_paths['forward_corrected']}
 
         # Prepare figures:
         self.fig.suptitle("Odometry Visualised")
@@ -94,7 +98,7 @@ class mrc: # main ROS class
     def label_callback(self, msg):
         self.request            = msg
 
-        if self.request.data.trueId < 1:
+        if self.request.data.trueId < 0:
             self.GROUND_TRUTH   = False
 
         self.ego                = [msg.data.odom.x, msg.data.odom.y, msg.data.odom.z]

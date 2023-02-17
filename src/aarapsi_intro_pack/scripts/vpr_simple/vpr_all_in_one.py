@@ -25,9 +25,9 @@ class mrc: # main ROS class
 
         #!# Tune Here:
         self.FEAT_TYPE       = FeatureType.RAW
-        self.IMG_DIMS        = (32, 32)
         self.PACKAGE_NAME    = 'aarapsi_intro_pack'
-        self.REF_DATA_NAME   = "ccw_zeroed_20230208"
+        self.REF_DATA_NAME   = "cw_zeroed"
+        self.IMG_DIMS        = (64, 64)
         self.DATABASE_PATH   = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/compressed_sets/"
         # Path where reference images are stored (names are sorted before reading):
         self.REF_IMG_PATH    = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/" + self.REF_DATA_NAME + "/forward"
@@ -87,6 +87,10 @@ class mrc: # main ROS class
         self.ref_info, self.ref_odom = self.image_processor.npzDatabaseLoadSave(self.DATABASE_PATH, self.REF_DATA_NAME, \
                                                                                 self.REF_IMG_PATH, self.REF_ODOM_PATH, \
                                                                                 self.FEAT_TYPE, self.IMG_DIMS, do_save=True)
+        if self.image_processor.EXTENDED_MODE == True:
+            rospy.logwarn("Data set was an extended set, but this node only supports basic sets. Reducing to basic set.")
+            self.ref_info = {'fts': self.image_processor.image_features['forward_corrected'], \
+                             'paths': self.image_processor.image_paths['forward_corrected']}
 
         if self.DO_PLOTTING:
             # Prepare figures:
