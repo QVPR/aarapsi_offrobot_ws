@@ -38,8 +38,13 @@ def check_dir_type(path, filetype=None, alltype=False):
                  # 3. the directory has no files and we want no files (good), but it has no folders either (and we want folders)
 
 def check_structure(root, ft, at=False, skip=[]):
-    if not check_dir_type(root): return False # root must be only directories
+    if not check_dir_type(root):  # root must be only directories
+        return False, [] 
+    dir_paths = []
     for dir in os.scandir(root):
-        if (dir.name in skip) or (dir.path in skip): continue
-        if not check_dir_type(dir.path, filetype=ft, alltype=at): return False
-    return True
+        if (dir.name in skip) or (dir.path in skip): 
+            continue
+        if not check_dir_type(dir.path, filetype=ft, alltype=at): 
+            return False, []
+        else: dir_paths.append(dir.path)
+    return True, dir_paths
