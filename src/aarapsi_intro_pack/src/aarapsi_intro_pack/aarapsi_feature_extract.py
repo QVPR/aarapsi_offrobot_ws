@@ -43,14 +43,53 @@ from tqdm.auto import tqdm
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+import torchvision.transforms as transforms
 import numpy as np
 
 from patchnetvlad.tools.datasets import PlaceDataset
 from patchnetvlad.models.models_generic import get_backend, get_model, get_pca_encoding
 from patchnetvlad.tools import PATCHNETVLAD_ROOT_DIR
 
+def tester():
+    print('Hello')
 
-def feature_extract(eval_set, model, device, output_features_dir, cuda, config):
+
+def input_transform(resize=(480, 640)):
+    if resize[0] > 0 and resize[1] > 0:
+        return transforms.Compose([
+            transforms.Resize(resize),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225]),
+        ])
+    else:
+        return transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225]),
+        ])
+
+def feature_query_extract(img, model, cuda, config):
+    device = torch.device("cuda" if cuda else "cpu")
+
+    the_resize = (int(config['feature_extract']['imageresizeh']), int(config['feature_extract']['imageresizew']))
+    mytransform = input_transform(the_resize)
+    input_data = mytransform(img)
+
+    with torch.no_grad():
+        input_data = input_data.unsqueeze(dim=0).to(device)
+        image_encoding = model.encoder(input_data)
+        vlad_global = model.pool(image_encoding)
+        vlad_global_pca = get_pca_encoding(model, vlad_global)
+
+    return vlad_global_pca.detach().cpu().numpy()
+
+def feature_ref_extract(dataset_file_path, dataset_root_dir, model, device, output_features_dir, cuda, config):
+    if not os.path.isfile(dataset_file_path):
+        dataset_file_path = join(PATCHNETVLAD_ROOT_DIR, 'dataset_imagenames', dataset_file_path)
+
+    dataset = PlaceDataset(None, dataset_file_path, dataset_root_dir, None, config['feature_extract'])
+
     if not exists(output_features_dir):
         makedirs(output_features_dir)
 
@@ -73,37 +112,37 @@ def feature_extract(eval_set, model, device, output_features_dir, cuda, config):
             indices_np = indices.detach().numpy()
             input_data = input_data.to(device)
             image_encoding = model.encoder(input_data)
-            if config['global_params']['pooling'].lower() == 'patchnetvlad':
-                vlad_local, vlad_global = model.pool(image_encoding)
+            # if config['global_params']['pooling'].lower() == 'patchnetvlad':
+            #     vlad_local, vlad_global = model.pool(image_encoding)
 
-                vlad_global_pca = get_pca_encoding(model, vlad_global)
-                db_feat[indices_np, :] = vlad_global_pca.detach().cpu().numpy()
+            #     vlad_global_pca = get_pca_encoding(model, vlad_global)
+            #     db_feat[indices_np, :] = vlad_global_pca.detach().cpu().numpy()
 
-                for this_iter, this_local in enumerate(vlad_local):
-                    this_patch_size = model.pool.patch_sizes[this_iter]
+            #     for this_iter, this_local in enumerate(vlad_local):
+            #         this_patch_size = model.pool.patch_sizes[this_iter]
 
-                    db_feat_patches = np.empty((this_local.size(0), pool_size, this_local.size(2)),
-                                              dtype=np.float32)
-                    grid = np.indices((1, this_local.size(0)))
-                    this_local_pca = get_pca_encoding(model, this_local.permute(2, 0, 1).reshape(-1, this_local.size(1))).\
-                        reshape(this_local.size(2), this_local.size(0), pool_size).permute(1, 2, 0)
-                    db_feat_patches[grid, :, :] = this_local_pca.detach().cpu().numpy()
+            #         db_feat_patches = np.empty((this_local.size(0), pool_size, this_local.size(2)),
+            #                                   dtype=np.float32)
+            #         grid = np.indices((1, this_local.size(0)))
+            #         this_local_pca = get_pca_encoding(model, this_local.permute(2, 0, 1).reshape(-1, this_local.size(1))).\
+            #             reshape(this_local.size(2), this_local.size(0), pool_size).permute(1, 2, 0)
+            #         db_feat_patches[grid, :, :] = this_local_pca.detach().cpu().numpy()
 
-                    for i, val in enumerate(indices_np):
-                        image_name = os.path.splitext(os.path.basename(eval_set.images[val]))[0]
-                        filename = output_local_features_prefix + '_' + 'psize{}_'.format(this_patch_size) + image_name + '.npy'
-                        np.save(filename, db_feat_patches[i, :, :])
-            else:
-                vlad_global = model.pool(image_encoding)
-                vlad_global_pca = get_pca_encoding(model, vlad_global)
-                db_feat[indices_np, :] = vlad_global_pca.detach().cpu().numpy()
+            #         for i, val in enumerate(indices_np):
+            #             image_name = os.path.splitext(os.path.basename(eval_set.images[val]))[0]
+            #             filename = output_local_features_prefix + '_' + 'psize{}_'.format(this_patch_size) + image_name + '.npy'
+            #             np.save(filename, db_feat_patches[i, :, :])
+            # else:
+            vlad_global = model.pool(image_encoding)
+            vlad_global_pca = get_pca_encoding(model, vlad_global)
+            db_feat[indices_np, :] = vlad_global_pca.detach().cpu().numpy()
 
     np.save(output_global_features_filename, db_feat)
 
     return db_feat
 
 
-def load_model(configfile, cuda, dataset_file_path, dataset_root_dir):
+def load_model(configfile, cuda):
     assert os.path.isfile(configfile)
     config = configparser.ConfigParser()
     config.read(configfile)
@@ -114,11 +153,6 @@ def load_model(configfile, cuda, dataset_file_path, dataset_root_dir):
     device = torch.device("cuda" if cuda else "cpu")
 
     encoder_dim, encoder = get_backend()
-
-    if not os.path.isfile(dataset_file_path):
-        dataset_file_path = join(PATCHNETVLAD_ROOT_DIR, 'dataset_imagenames', dataset_file_path)
-
-    dataset = PlaceDataset(None, dataset_file_path, dataset_root_dir, None, config['feature_extract'])
 
     # must resume to do extraction
     if config['global_params']['num_pcs'] != '0':
@@ -155,5 +189,6 @@ def load_model(configfile, cuda, dataset_file_path, dataset_root_dir):
         print("=> loaded checkpoint '{}'".format(resume_ckpt, ))
     else:
         raise FileNotFoundError("=> no checkpoint found at '{}'".format(resume_ckpt))
+    model.eval()
 
-    return model
+    return model, config

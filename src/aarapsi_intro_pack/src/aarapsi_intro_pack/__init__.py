@@ -3,6 +3,7 @@
 from .vpr_feature_tool import *
 from .vpr_image_methods import *
 from .vpr_plots import *
+from .Patch_NetVLAD.patchnetvlad import *
 
 class Tolerance_Mode(Enum):
     METRE_CROW_TRUE = 0
