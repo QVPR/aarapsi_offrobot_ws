@@ -6,3 +6,4 @@ aarapsi_offrobot_ws.code-workspace
 src/aarapsi_intro_pack/data/
 .prof
 __pycache__
+src/CMakeLists.txt

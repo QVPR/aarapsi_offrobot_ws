@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
+
 import rospy
 import numpy as np
 import os
 import cv2
 import sys
 from enum import Enum
-from strenum import StrEnum
 from tqdm import tqdm
 
 class FeatureType(Enum):
@@ -13,7 +13,7 @@ class FeatureType(Enum):
     RAW = 1
     PATCHNORM = 2
 
-class State(StrEnum):
+class State(Enum):
     DEBUG = "[DEBUG]"
     INFO = "[INFO]"
     WARN = "[WARN]"
@@ -39,7 +39,7 @@ class VPRImageProcessor: # main ROS class
             elif state == State.FATAL:
                 rospy.logfatal(text)
         else:
-            print(state + " " + text)
+            print(state.value + " " + text)
 
     def loadFull(self, img_path, odom_path, feat_type, img_dims):
         self.loadImageFeatures(img_path, feat_type, img_dims)
