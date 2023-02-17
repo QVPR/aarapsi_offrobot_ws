@@ -18,6 +18,18 @@ DATABASE_PATH   = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/compressed_se
 print(check_structure(REF_IMG_PATH, ".png", at=True, skip=[REF_ODOM_PATH]))
 print(check_structure(REF_IMG_ROOT, ".png", at=True, skip=[REF_ODOM_PATH]))
 
+from aarapsi_intro_pack import aarapsi_feature_extract
+from PIL import Image
+import time
+
+
+img = Image.open('./scripts/vpr_simple/frame_id_000000.png')
+model, config = aarapsi_feature_extract.load_model('./src/aarapsi_intro_pack/Patch_NetVLAD/patchnetvlad/configs/netvlad_extract.ini', False)
+t1 = time.time()
+qry_ftrs = aarapsi_feature_extract.feature_query_extract(img, model, False, config)
+t2 = time.time()
+print(t2-t1)
+
 # # # test.loadImageFeatures(REF_IMG_PATH, FEAT_TYPE, IMG_DIMS)
 # # # test.loadOdometry(REF_ODOM_PATH)
 # # # test.save2npz(DATABASE_PATH, SET_NAME)
