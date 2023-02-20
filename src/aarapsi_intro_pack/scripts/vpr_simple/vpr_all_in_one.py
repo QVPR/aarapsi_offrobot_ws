@@ -156,6 +156,11 @@ class mrc: # main ROS class
 
         self.ego                = [msg.data.odom.x, msg.data.odom.y, msg.data.odom.z]
 
+        if self.COMPRESS_IN:
+            self.store_query    = self.bridge.compressed_imgmsg_to_cv2(self.request.data.queryImage, "passthrough")
+        else:
+            self.store_query    = self.bridge.imgmsg_to_cv2(self.request.data.queryImage, "passthrough")
+
         self.new_request        = True
 
     def odom_callback(self, msg):
@@ -233,6 +238,7 @@ def main_loop(nmrc):
         dvc             = np.transpose(np.matrix(nmrc.request.data.dvc))
         matchInd        = nmrc.request.data.matchId
         trueInd         = nmrc.request.data.trueId
+
     else:
         ft_qry          = nmrc.image_processor.getFeat(nmrc.store_query, size=2)
         matchInd, dvc   = nmrc.getMatchInd(ft_qry, nmrc.MATCH_METRIC) # Find match

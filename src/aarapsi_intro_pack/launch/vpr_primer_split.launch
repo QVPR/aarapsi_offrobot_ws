@@ -1,5 +1,5 @@
 <launch>
-    <arg name="dataset_name" default="cw_zeroed_20230208"/>
+    <arg name="dataset_name" default="ccw_zeroed_20230208"/>
     <arg name="query_feed" default="forward"/>
     <arg name="odometry_folder" default="odo"/>
     <arg name="rate" default="20.0"/>
