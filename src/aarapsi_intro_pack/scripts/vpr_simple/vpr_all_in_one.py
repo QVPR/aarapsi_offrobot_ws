@@ -8,46 +8,62 @@ import cv2
 import numpy as np
 import rospkg
 from matplotlib import pyplot as plt
+import argparse as ap
+import os
 
 from scipy.spatial.distance import cdist
 from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped # Our custom msg structures
 from aarapsi_intro_pack import VPRImageProcessor, Tolerance_Mode, FeatureType, labelImage, makeImage, \
                                 doMtrxFig, updateMtrxFig, doDVecFig, updateDVecFig, doOdomFig, updateOdomFig
+from aarapsi_intro_pack.core.enum_tools import enum_value_options, enum_get
+from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_positive_two_int_tuple, check_positive_int, check_bool
 
 class mrc: # main ROS class
-    def __init__(self):
+    def __init__(self, database_path, ref_images_path, ref_odometry_path, image_feed_input, odometry_input, dataset_name, \
+                    do_compress=False, do_plotting=False, do_image=False, do_groundtruth=False, do_label=True, \
+                    rate_num=20.0, ft_type=FeatureType.RAW, img_dims=(64,64), icon_settings=(50,20), \
+                    tolerance_threshold=5.0, tolerance_mode=Tolerance_Mode.METRE_LINE, \
+                    match_metric='euclidean', namespace="/vpr_nodes", \
+                    time_history_length=20, frame_id="base_link", \
+                    node_name='vpr_all_in_one', anon=True\
+                ):
 
-        rospy.init_node('vpr_all_in_one', anonymous=True)
-        rospy.loginfo('Starting vpr_all_in_one node.')
+        rospy.init_node(node_name, anonymous=anon)
+        rospy.loginfo('Starting %s node.' % (node_name))
 
-        self.rate_num        = 20.0 # Hz, maximum of between 21-26 Hz (varies) with no plotting/image/ground truth/compression.
-        self.rate_obj        = rospy.Rate(self.rate_num)
+        self.rate_num           = rate_num # Hz, maximum of between 21-26 Hz (varies) with no plotting/image/ground truth/compression.
+        self.rate_obj           = rospy.Rate(self.rate_num)
 
         #!# Tune Here:
-        self.FEAT_TYPE       = FeatureType.RAW
-        self.PACKAGE_NAME    = 'aarapsi_intro_pack'
-        self.REF_DATA_NAME   = "cw_zeroed"
-        self.IMG_DIMS        = (64, 64)
-        self.DATABASE_PATH   = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/compressed_sets/"
-        # Path where reference images are stored (names are sorted before reading):
-        self.REF_IMG_PATH    = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/" + self.REF_DATA_NAME + "/forward"
-        # Path for where odometry .csv files are stored: 
-        self.REF_ODOM_PATH   = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/" + self.REF_DATA_NAME + "/odo" 
-        self.FEED_TOPIC      = "/ros_indigosdk_occam/image0/compressed"
-        self.ODOM_TOPIC      = "/odometry/filtered"
-        self.TOL_MODE        = Tolerance_Mode.METRE_LINE
-        self.TOL_THRES       = 5.0
-        self.FRAME_ID        = "base_link"
-        self.ICON_SIZE       = 50
-        self.ICON_DIST       = 20
-        self.MATCH_METRIC    = 'euclidean'
-        self.TIME_HIST_LEN   = 20
+        self.FEAT_TYPE          = ft_type
+        self.IMG_DIMS           = img_dims
+
+        self.DATABASE_PATH      = database_path
+        self.REF_DATA_NAME      = dataset_name
+        self.REF_IMG_PATH       = ref_images_path
+        self.REF_ODOM_PATH      = ref_odometry_path
+
+        self.NAMESPACE          = namespace
+        self.FEED_TOPIC         = image_feed_input
+        self.ODOM_TOPIC         = odometry_input
+
+        self.TOL_MODE           = tolerance_mode
+        self.TOL_THRES          = tolerance_threshold
+
+        self.ICON_SIZE          = icon_settings[0]
+        self.ICON_DIST          = icon_settings[1]
+        self.ICON_PATH          = rospkg.RosPack().get_path(rospkg.get_package_name(os.path.abspath(__file__))) + "/media"
+
+        self.MATCH_METRIC       = match_metric
+        self.TIME_HIST_LEN      = time_history_length
+        self.FRAME_ID           = frame_id
 
         #!# Enable/Disable Features (Label topic will always be generated):
-        self.DO_COMPRESS     = False
-        self.DO_PLOTTING     = True
-        self.MAKE_IMAGE      = True
-        self.GROUND_TRUTH    = True
+        self.DO_COMPRESS        = do_compress
+        self.DO_PLOTTING        = do_plotting
+        self.MAKE_IMAGE         = do_image
+        self.GROUND_TRUTH       = do_groundtruth
+        self.MAKE_LABEL         = do_label
 
         self.ego                = [0.0, 0.0, 0.0] # robot position
 
@@ -66,8 +82,11 @@ class mrc: # main ROS class
             self.label_type     = CompressedImageLabelStamped
 
         if self.MAKE_IMAGE:
-            self.vpr_feed_pub   = rospy.Publisher("/vpr_nodes/image" + self.img_tpc_mode, self.image_type, queue_size=1)
-        self.vpr_label_pub      = rospy.Publisher("/vpr_nodes/image/label" + self.img_tpc_mode, self.label_type, queue_size=1)
+            self.vpr_feed_pub   = rospy.Publisher(self.NAMESPACE + "/image" + self.img_tpc_mode, self.image_type, queue_size=1)
+        if self.MAKE_LABEL:
+            self.vpr_label_pub  = rospy.Publisher(self.NAMESPACE + "/label" + self.img_tpc_mode, self.label_type, queue_size=1)
+        else:
+            self.vpr_label_sub  = rospy.Subscriber(self.NAMESPACE + "/label" + self.img_tpc_mode, self.label_type, self.label_callback, queue_size=1)
 
         if self.DO_PLOTTING:
             self.fig, self.axes = plt.subplots(1, 3, figsize=(15,4))
@@ -76,8 +95,9 @@ class mrc: # main ROS class
         # flags to denest main loop:
         self.new_query          = False
         self.new_odom           = False
-        self.do_show            = False
         self.main_ready         = False
+        self.new_request        = False
+        self.do_show            = False
 
         self.last_time          = rospy.Time.now()
         self.time_history       = []
@@ -103,8 +123,8 @@ class mrc: # main ROS class
         self.ICON_DICT = {'size': self.ICON_SIZE, 'dist': self.ICON_DIST, 'icon': [], 'good': [], 'poor': []}
         # Load icons:
         if self.MAKE_IMAGE:
-            good_icon = cv2.imread(rospkg.RosPack().get_path(self.PACKAGE_NAME) + '/media/' + 'tick.png', cv2.IMREAD_UNCHANGED)
-            poor_icon = cv2.imread(rospkg.RosPack().get_path(self.PACKAGE_NAME) + '/media/' + 'cross.png', cv2.IMREAD_UNCHANGED)
+            good_icon = cv2.imread(self.ICON_PATH + "/tick.png", cv2.IMREAD_UNCHANGED)
+            poor_icon = cv2.imread(self.ICON_PATH + "/cross.png", cv2.IMREAD_UNCHANGED)
             self.ICON_DICT['good'] = cv2.resize(good_icon, (self.ICON_SIZE, self.ICON_SIZE), interpolation = cv2.INTER_AREA)
             self.ICON_DICT['poor'] = cv2.resize(poor_icon, (self.ICON_SIZE, self.ICON_SIZE), interpolation = cv2.INTER_AREA)
 
@@ -117,6 +137,16 @@ class mrc: # main ROS class
     # Toggle flag so that visualisation is performed at a lower rate than main loop processing (10Hz instead of >>10Hz)
 
         self.do_show            = True
+
+    def label_callback(self, msg):
+        self.request            = msg
+
+        if self.request.data.trueId < 0:
+            self.GROUND_TRUTH   = False
+
+        self.ego                = [msg.data.odom.x, msg.data.odom.y, msg.data.odom.z]
+
+        self.new_request        = True
 
     def odom_callback(self, msg):
     # /odometry/filtered (nav_msgs/Odometry)
@@ -172,7 +202,8 @@ class mrc: # main ROS class
 
         if self.MAKE_IMAGE:
             self.vpr_feed_pub.publish(ros_image_to_pub)
-        self.vpr_label_pub.publish(struct_to_pub)
+        if self.MAKE_LABEL:
+            self.vpr_label_pub.publish(struct_to_pub)
 
 def main_loop(nmrc):
 # Main loop process
@@ -181,18 +212,25 @@ def main_loop(nmrc):
         nmrc.fig.canvas.draw()
         nmrc.do_show = False
 
-    if not (nmrc.new_query and nmrc.new_odom and nmrc.main_ready): # denest
+    if not (((nmrc.new_query and nmrc.new_odom) or nmrc.new_request) and nmrc.main_ready): # denest
         #rospy.loginfo_throttle(60, "Waiting for a new query.") # print every 60 seconds
         return
+
+    if nmrc.new_request: # use label subscriber feed instead
+        dvc             = np.transpose(np.matrix(nmrc.request.data.dvc))
+        matchInd        = nmrc.request.data.matchId
+        trueInd         = nmrc.request.data.trueId
+    else:
+        ft_qry          = nmrc.image_processor.getFeat(nmrc.store_query, size=2)
+        matchInd, dvc   = nmrc.getMatchInd(ft_qry, nmrc.MATCH_METRIC) # Find match
+        trueInd         = -1 #default; can't be negative.
 
     # Clear flags:
     nmrc.new_query      = False
     nmrc.new_odom       = False
     nmrc.main_ready     = False
+    nmrc.new_request    = False
 
-    ft_qry = nmrc.image_processor.getFeat(nmrc.store_query, size=2)
-    matchInd, dvc = nmrc.getMatchInd(ft_qry, nmrc.MATCH_METRIC) # Find match
-    trueInd = -1 #default; can't be negative.
     if nmrc.GROUND_TRUTH:
         trueInd = nmrc.getTrueInd() # find correct match based on shortest difference to measured odometry
     else:
@@ -217,6 +255,8 @@ def main_loop(nmrc):
         elif nmrc.TOL_MODE == Tolerance_Mode.FRAME:
             tolError = np.abs(matchInd - trueInd)
             tolString = "F"
+        else:
+            raise Exception("Error: Unknown tolerance mode.")
 
         if tolError < nmrc.TOL_THRES:
             nmrc.ICON_DICT['icon'] = nmrc.ICON_DICT['good']
@@ -246,7 +286,6 @@ def main_loop(nmrc):
         cv2_img_lab = labelImage(cv2_image_to_pub, label_string, (20, cv2_image_to_pub.shape[0] - 40), (100, 255, 100))
 
         img_to_pub = cv2_img_lab
-    
     else:
         img_to_pub = nmrc.store_query
     
@@ -255,7 +294,54 @@ def main_loop(nmrc):
 
 if __name__ == '__main__':
     try:
-        nmrc = mrc()
+        parser = ap.ArgumentParser(prog="vpr_all_in_one", 
+                                   description="ROS implementation of QVPR's VPR Primer",
+                                   epilog="Maintainer: Owen Claxton (claxtono@qut.edu.au)")
+        
+        # Positional Arguments:
+        parser.add_argument('dataset-name', help='Specify name of dataset (for fast loading; matches are made on names starting with provided string).')
+        parser.add_argument('database-path', help="Specify path to top-level of image and odometry database (for fast loading).")
+        parser.add_argument('ref-imgs-path', help="Specify path to reference images (for slow loading).")
+        parser.add_argument('ref-odom-path', help="Specify path to reference odometry (for slow loading).")
+        parser.add_argument('image-topic-in', help="Specify input image topic (include /compressed if using a compressed topic).")
+        parser.add_argument('odometry-topic-in', help="Specify input odometry topic (include /compressed if using a compressed topic).")
+
+        # Optional Arguments:
+        parser.add_argument('--do-compress', '-C', type=check_bool, default=False, help='Enable image compression IOs (default: %(default)s)')
+        parser.add_argument('--do-plotting', '-P', type=check_bool, default=False, help='Enable matplotlib visualisations (default: %(default)s)')
+        parser.add_argument('--make-images', '-I', type=check_bool, default=False, help='Enable image topic generation (default: %(default)s)')
+        parser.add_argument('--groundtruth', '-G', type=check_bool, default=False, help='Enable groundtruth inclusion (default: %(default)s)')
+        parser.add_argument('--make-labels', '-L', type=check_bool, default=True, help='Enable label topic generation; false enables a subscriber instead (default: %(default)s)')
+        parser.add_argument('--rate', '-r', type=check_positive_float, default=10.0, help='Set node rate (default: %(default)s).')
+        parser.add_argument('--time-history-length', '-l', type=check_positive_int, default=10, help='Set keep history size for logging true rate (default: %(default)s).')
+        parser.add_argument('--img-dims', '-i', type=check_positive_two_int_tuple, default=(64,64), help='Set image dimensions (default: %(default)s).')
+        ft_options, ft_options_text = enum_value_options(FeatureType, skip=FeatureType.NONE)
+        parser.add_argument('--ft-type', '-F', type=int, choices=ft_options, default=ft_options[0], \
+                            help='Choose feature type for extraction, types: %s (default: %s).' % (ft_options_text, '%(default)s'))
+        tolmode_options, tolmode_options_text = enum_value_options(Tolerance_Mode)
+        parser.add_argument('--tol-mode', '-t', type=int, choices=tolmode_options, default=tolmode_options[0], \
+                            help='Choose tolerance mode for ground truth, types: %s (default: %s).' % (tolmode_options_text, '%(default)s'))
+        parser.add_argument('--tol-thresh', '-T', type=check_positive_float, default=1.0, help='Set tolerance threshold for ground truth (default: %(default)s).')
+        parser.add_argument('--icon-info', '-p', dest='(size, distance)', type=check_positive_two_int_tuple, default=(50,20), help='Set icon (size, distance) (default: %(default)s).')
+        parser.add_argument('--node-name', '-N', default="vpr_all_in_one", help="Specify node name (default: %(default)s).")
+        parser.add_argument('--anon', '-a', type=check_bool, default=True, help="Specify whether node should be anonymous (default: %(default)s).")
+        parser.add_argument('--namespace', '-n', default="/vpr_nodes", help="Specify namespace for topics (default: %(default)s).")
+        parser.add_argument('--frame-id', '-f', default="base_link", help="Specify frame_id for messages (default: %(default)s).")
+
+        # Parse args...
+        #raw_args = parser.parse_args()
+        raw_args = parser.parse_known_args()
+        args = vars(raw_args[0])
+
+        # Hand to class ...
+        nmrc = mrc(args['database-path'], args['ref-imgs-path'], args['ref-odom-path'], args['image-topic-in'], args['odometry-topic-in'], \
+                    args['dataset-name'], do_compress=args['do_compress'], do_plotting=args['do_plotting'], do_image=args['make_images'], \
+                    do_groundtruth=args['groundtruth'], do_label=args['make_labels'], rate_num=args['rate'], ft_type=enum_get(args['ft_type'], FeatureType), \
+                    img_dims=args['img_dims'], icon_settings=args['(size, distance)'], tolerance_threshold=args['tol_thresh'], \
+                    tolerance_mode=enum_get(args['tol_mode'], Tolerance_Mode), match_metric='euclidean', namespace=args['namespace'], \
+                    time_history_length=args['time_history_length'], frame_id=args['frame_id'], \
+                    node_name=args['node_name'], anon=args['anon']\
+                )
 
         rospy.loginfo("Reference list processed. Listening for queries...")    
         
@@ -266,3 +352,5 @@ if __name__ == '__main__':
         rospy.loginfo("Exit state reached.")
     except rospy.ROSInterruptException:
         pass
+
+        

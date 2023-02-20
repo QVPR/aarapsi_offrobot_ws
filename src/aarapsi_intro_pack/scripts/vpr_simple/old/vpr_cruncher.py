@@ -23,11 +23,11 @@ class mrc: # main ROS class
         #!# Tune Here:
         self.FEAT_TYPE       = FeatureType.RAW # Feature Type
         self.PACKAGE_NAME    = 'aarapsi_intro_pack'
-        self.REF_DATA_NAME   = "cw_zeroed"
+        self.REF_DATA_NAME   = "cw_zeroed_20230208"
         self.IMG_DIMS        = (64, 64)
         self.DATABASE_PATH   = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/compressed_sets/"
         # Path where reference images are stored (names are sorted before reading):
-        self.REF_IMG_PATH    = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/" + self.REF_DATA_NAME + "/forward"
+        self.REF_IMG_PATH    = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/" + self.REF_DATA_NAME + "/left"
         # Path for where odometry .csv files are stored: 
         self.REF_ODOM_PATH   = rospkg.RosPack().get_path(self.PACKAGE_NAME) + "/data/" + self.REF_DATA_NAME + "/odo" 
         self.FEED_TOPIC      = "/ros_indigosdk_occam/image0/compressed"

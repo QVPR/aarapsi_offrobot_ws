@@ -48,3 +48,32 @@ def check_structure(root, ft, at=False, skip=[]):
             return False, []
         else: dir_paths.append(dir.path)
     return True, dir_paths
+
+def find_shared_root(dirs):
+    paths       = []
+    lengths     = []
+    depth       = 0
+    built_root  = ""
+
+    # clean paths, find depth of each
+    for dir in dirs:
+        path = os.path.normpath(dir).split(os.sep)
+        if path[0] == "": path.pop(0)
+        paths.append(path)
+        lengths.append(len(path))
+
+    # find shared root and depth shared:
+    for dir_level in range(min(lengths)):
+        path_init = paths[0][dir_level]
+        add = True
+        for path in paths:
+            if not (path[dir_level] == path_init):
+                add = False
+                break
+
+        if add:
+            built_root += ("/" + path[dir_level])
+            depth += 1
+    
+    dist = max(lengths) - depth
+    return depth, dist, built_root

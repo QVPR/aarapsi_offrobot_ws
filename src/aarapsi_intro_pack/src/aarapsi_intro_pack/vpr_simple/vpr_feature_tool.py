@@ -7,7 +7,7 @@ import cv2
 import sys
 from enum import Enum
 from tqdm import tqdm
-from aarapsi_intro_pack.core.file_system_tools import check_structure, scan_directory
+from aarapsi_intro_pack.core.file_system_tools import check_structure, scan_directory, find_shared_root
 
 class FeatureType(Enum):
     NONE = 0
@@ -43,6 +43,7 @@ class VPRImageProcessor: # main ROS class
             print(state.value + " " + text)
 
     def loadFull(self, img_path, odom_path, feat_type, img_dims):
+        self.print("[loadFull] Attempting to load library.", State.DEBUG)
         self.loadImageFeatures(img_path, feat_type, img_dims, skip_dirs=[odom_path])
         self.loadOdometry(odom_path)
         if not (self.IMAGES_LOADED and self.ODOM_LOADED):
@@ -50,12 +51,25 @@ class VPRImageProcessor: # main ROS class
             sys.exit()
         return self._img_info, self._odom
 
-    def loadImageFeatures(self, img_set_root, feat_type, img_dims, skip_dirs=["odo"]):
+    def loadImageFeatures(self, img_path_input, feat_type, img_dims, skip_dirs=["odo"], root_separation_max=1):
         self.FEAT_TYPE = feat_type
         self.IMG_DIMS = img_dims
 
         try:
-            self.EXTENDED_MODE, dirs = check_structure(img_set_root, ".png", at=True, skip=skip_dirs)
+            if isinstance(img_path_input, list):
+                _, dist, root = find_shared_root(img_path_input)
+                if dist > root_separation_max:
+                    raise Exception("[loadImageFeatures] Error: list provided, but roots exceed specified (or default) directory separation limit (%d)!" % (root_separation_max))
+                self.EXTENDED_MODE = True
+                dirs = img_path_input
+                img_set_root = root
+                self.print("[loadImageFeatures] Extended library specified, handling...", State.WARN)
+            elif isinstance(img_path_input, str):
+                self.EXTENDED_MODE, dirs = check_structure(img_path_input, ".png", at=True, skip=skip_dirs)
+                img_set_root = img_path_input
+            else:
+                raise Exception("[loadImageFeatures] Unsupported image path input type.")
+            
             if self.EXTENDED_MODE:
                 self.print("[loadImageFeatures] Extended library detected.", State.WARN)
                 self.image_features = {}
@@ -171,14 +185,15 @@ class VPRImageProcessor: # main ROS class
             if self.EXTENDED_MODE == True:
                 key_string_extended = str(np.fromiter(self.image_paths.keys(), (str, 15))).replace('\'', '').replace('\n', '').replace(' ', ', ')
                 self.print("[npzLoader] Data is an extended set, with image features and paths dictionaries, keys: \n\t%s" % (key_string_extended), State.WARN)
+            return True
         except Exception as e:
             self.print("[npzLoader] Load failed. Check path and file name is correct.\nCode: %s" % (e), State.ERROR)
+            return False
 
     def npzDatabaseLoadSave(self, database_path, filename, img_path, odom_path, feat_type, img_dims, do_save=False):
-        try:
-            self.npzLoader(database_path, filename)
-        except Exception as e:
-            self.print("[npzDatabaseLoadSave] Load failed. Building normally.\nCode: %s" % (e), State.WARN)
+        load_status = self.npzLoader(database_path, filename)
+        if not load_status:
+            self.print("[npzDatabaseLoadSave] Load failed. Building normally.", State.WARN)
             self._img_info, self._odom = self.loadFull(img_path, odom_path, feat_type, img_dims)
         
             if do_save:
