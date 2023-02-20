@@ -180,10 +180,10 @@ class VPRImageProcessor: # main ROS class
     def npzLoader(self, database_path, filename):
         try:
             data_keys = self._npzLoader(database_path, filename)
-            key_string = str(np.fromiter(data_keys, (str, 15))).replace('\'', '').replace('\n', '').replace(' ', ', ')
+            key_string = str(np.fromiter(data_keys, (str, 20))).replace('\'', '').replace('\n', '').replace(' ', ', ')
             self.print("[npzLoader] Success. Data with internal meta-filename '%s' found with keys: \n\t%s" % (self.FILENAME, key_string), State.INFO)
             if self.EXTENDED_MODE == True:
-                key_string_extended = str(np.fromiter(self.image_paths.keys(), (str, 15))).replace('\'', '').replace('\n', '').replace(' ', ', ')
+                key_string_extended = str(np.fromiter(self.image_paths.keys(), (str, 20))).replace('\'', '').replace('\n', '').replace(' ', ', ')
                 self.print("[npzLoader] Data is an extended set, with image features and paths dictionaries, keys: \n\t%s" % (key_string_extended), State.WARN)
             return True
         except Exception as e:

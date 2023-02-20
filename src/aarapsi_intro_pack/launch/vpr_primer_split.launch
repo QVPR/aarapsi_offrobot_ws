@@ -10,7 +10,7 @@
     <arg name="database_path" default="$(find aarapsi_intro_pack)/data/compressed_sets"/>
     <arg name="ref_imgs_path" default="$(find aarapsi_intro_pack)/data/$(arg dataset_name)/$(arg query_feed)"/>
     <arg name="ref_odom_path" default="$(find aarapsi_intro_pack)/data/$(arg dataset_name)/$(arg odometry_folder)"/>
-    <arg name="image_topic_in" default="/ros_indigosdk_occam/image0/compressed"/>
+    <arg name="image_topic_in" default="/ros_indigosdk_occam/image0"/>
     <arg name="odometry_topic_in" default="/odometry/filtered"/>
 
     <arg name="img_dims" default="(64,64)"/>
@@ -24,13 +24,15 @@
     <arg name="namespace" default="/vpr_nodes"/>
     <arg name="frame_id" default="base_link"/>
 
-    <arg name="cruncher_do_compress" default="False"/>
+    <arg name="cruncher_compress_in" default="True"/>
+    <arg name="cruncher_compress_out" default="False"/>
     <arg name="cruncher_do_plotting" default="False"/>
     <arg name="cruncher_make_images" default="False"/>
     <arg name="cruncher_groundtruth" default="True"/>
     <arg name="cruncher_make_labels" default="True"/>
 
-    <arg name="plotter_do_compress" default="True"/>
+    <arg name="plotter_compress_in" default="False"/>
+    <arg name="plotter_compress_out" default="False"/>
     <arg name="plotter_do_plotting" default="True"/>
     <arg name="plotter_make_images" default="True"/>
     <arg name="plotter_groundtruth" default="True"/>
@@ -39,7 +41,7 @@
     <node pkg="aarapsi_intro_pack" type="vpr_all_in_one.py" name="$(arg cruncher_node_name)" output="screen" 
         args="$(arg dataset_name) $(arg database_path) $(arg ref_imgs_path) $(arg ref_odom_path)
               $(arg image_topic_in) $(arg odometry_topic_in) 
-              -C $(arg cruncher_do_compress) -P $(arg cruncher_do_plotting) -I $(arg cruncher_make_images) -G $(arg cruncher_groundtruth) -L $(arg cruncher_make_labels)
+              -Ci $(arg cruncher_compress_in) -Co $(arg cruncher_compress_out) -P $(arg cruncher_do_plotting) -I $(arg cruncher_make_images) -G $(arg cruncher_groundtruth) -L $(arg cruncher_make_labels)
               -r $(arg rate) -l $(arg time_history_length) -i $(arg img_dims) -F $(arg ft_type) 
               -t $(arg tol_mode) -T $(arg tol_thresh) -p $(arg icon_info) 
               -N $(arg cruncher_node_name) -a $(arg anon) -n $(arg namespace) -f $(arg frame_id)">
@@ -48,7 +50,7 @@
     <node pkg="aarapsi_intro_pack" type="vpr_all_in_one.py" name="$(arg plotter_node_name)" output="screen" 
         args="$(arg dataset_name) $(arg database_path) $(arg ref_imgs_path) $(arg ref_odom_path)
               $(arg image_topic_in) $(arg odometry_topic_in) 
-              -C $(arg plotter_do_compress) -P $(arg plotter_do_plotting) -I $(arg plotter_make_images) -G $(arg plotter_groundtruth) -L $(arg plotter_make_labels)
+              -Ci $(arg plotter_compress_in) -Co $(arg plotter_compress_out) -P $(arg plotter_do_plotting) -I $(arg plotter_make_images) -G $(arg plotter_groundtruth) -L $(arg plotter_make_labels)
               -r $(arg rate) -l $(arg time_history_length) -i $(arg img_dims) -F $(arg ft_type) 
               -t $(arg tol_mode) -T $(arg tol_thresh) -p $(arg icon_info) 
               -N $(arg plotter_node_name) -a $(arg anon) -n $(arg namespace) -f $(arg frame_id)">

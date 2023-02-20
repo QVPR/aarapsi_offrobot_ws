@@ -20,7 +20,7 @@ from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_p
 
 class mrc: # main ROS class
     def __init__(self, database_path, ref_images_path, ref_odometry_path, image_feed_input, odometry_input, dataset_name, \
-                    do_compress=False, do_plotting=False, do_image=False, do_groundtruth=False, do_label=True, \
+                    compress_in=True, compress_out=False, do_plotting=False, do_image=False, do_groundtruth=False, do_label=True, \
                     rate_num=20.0, ft_type=FeatureType.RAW, img_dims=(64,64), icon_settings=(50,20), \
                     tolerance_threshold=5.0, tolerance_mode=Tolerance_Mode.METRE_LINE, \
                     match_metric='euclidean', namespace="/vpr_nodes", \
@@ -59,7 +59,8 @@ class mrc: # main ROS class
         self.FRAME_ID           = frame_id
 
         #!# Enable/Disable Features (Label topic will always be generated):
-        self.DO_COMPRESS        = do_compress
+        self.COMPRESS_IN        = compress_in
+        self.COMPRESS_OUT       = compress_out
         self.DO_PLOTTING        = do_plotting
         self.MAKE_IMAGE         = do_image
         self.GROUND_TRUTH       = do_groundtruth
@@ -67,26 +68,35 @@ class mrc: # main ROS class
 
         self.ego                = [0.0, 0.0, 0.0] # robot position
 
-        self.bridge             = CvBridge() # to convert sensor_msgs/CompressedImage to cv2.
+        self.bridge             = CvBridge() # to convert sensor_msgs/(Compressed)Image to cv2.
 
-        self.img_frwd_sub       = rospy.Subscriber(self.FEED_TOPIC, CompressedImage, self.img_frwd_callback, queue_size=1) # frwd-view 
-        self.odom_sub           = rospy.Subscriber(self.ODOM_TOPIC, Odometry, self.odom_callback, queue_size=1)
-
-        self.img_tpc_mode       = ""
-        self.image_type         = Image
-        self.label_type         = ImageLabelStamped
-
-        if self.DO_COMPRESS:
-            self.img_tpc_mode   = "/compressed"
-            self.image_type     = CompressedImage
-            self.label_type     = CompressedImageLabelStamped
-
-        if self.MAKE_IMAGE:
-            self.vpr_feed_pub   = rospy.Publisher(self.NAMESPACE + "/image" + self.img_tpc_mode, self.image_type, queue_size=1)
-        if self.MAKE_LABEL:
-            self.vpr_label_pub  = rospy.Publisher(self.NAMESPACE + "/label" + self.img_tpc_mode, self.label_type, queue_size=1)
+        if self.COMPRESS_IN:
+            self.in_img_tpc_mode   = "/compressed"
+            self.in_image_type     = CompressedImage
+            self.in_label_type     = CompressedImageLabelStamped
         else:
-            self.vpr_label_sub  = rospy.Subscriber(self.NAMESPACE + "/label" + self.img_tpc_mode, self.label_type, self.label_callback, queue_size=1)
+            self.in_img_tpc_mode   = ""
+            self.in_image_type     = Image
+            self.in_label_type     = ImageLabelStamped
+
+        if self.COMPRESS_OUT:
+            self.out_img_tpc_mode   = "/compressed"
+            self.out_image_type     = CompressedImage
+            self.out_label_type     = CompressedImageLabelStamped
+        else:
+            self.out_img_tpc_mode   = ""
+            self.out_image_type     = Image
+            self.out_label_type     = ImageLabelStamped
+        
+        if self.MAKE_IMAGE:
+            self.vpr_feed_pub   = rospy.Publisher(self.NAMESPACE + "/image" + self.out_img_tpc_mode, self.out_image_type, queue_size=1)
+
+        if self.MAKE_LABEL:
+            self.img_sub        = rospy.Subscriber(self.FEED_TOPIC + self.in_img_tpc_mode, self.in_image_type, self.img_callback, queue_size=1) 
+            self.odom_sub       = rospy.Subscriber(self.ODOM_TOPIC, Odometry, self.odom_callback, queue_size=1)
+            self.vpr_label_pub  = rospy.Publisher(self.NAMESPACE + "/label" + self.out_img_tpc_mode, self.out_label_type, queue_size=1)
+        else:
+            self.vpr_label_sub  = rospy.Subscriber(self.NAMESPACE + "/label" + self.in_img_tpc_mode, self.in_label_type, self.label_callback, queue_size=1)
 
         if self.DO_PLOTTING:
             self.fig, self.axes = plt.subplots(1, 3, figsize=(15,4))
@@ -155,11 +165,15 @@ class mrc: # main ROS class
         self.ego                = [round(msg.pose.pose.position.x, 3), round(msg.pose.pose.position.y, 3), round(msg.pose.pose.position.z, 3)]
         self.new_odom           = True
 
-    def img_frwd_callback(self, msg):
+    def img_callback(self, msg):
     # /ros_indigosdk_occam/image0/compressed (sensor_msgs/CompressedImage)
     # Store newest forward-facing image received
 
-        self.store_query        = self.bridge.compressed_imgmsg_to_cv2(msg, "bgr8")
+        if self.COMPRESS_IN:
+            self.store_query    = self.bridge.compressed_imgmsg_to_cv2(msg, "bgr8")
+        else:
+            self.store_query    = self.bridge.imgmsg_to_cv2(msg, "passthrough")
+
         self.new_query          = True
         
     def getMatchInd(self, ft_qry, metric='euclidean'):
@@ -179,7 +193,7 @@ class mrc: # main ROS class
         return trueInd
 
     def publish_ros_info(self, cv2_img, fid, tInd, mInd, dvc, img_path):
-        if self.DO_COMPRESS:
+        if self.COMPRESS_OUT:
             ros_image_to_pub = self.bridge.cv2_to_compressed_imgmsg(cv2_img, "jpg") # jpg (png slower)
             struct_to_pub = CompressedImageLabelStamped()
         else:
@@ -207,7 +221,6 @@ class mrc: # main ROS class
 
 def main_loop(nmrc):
 # Main loop process
-
     if nmrc.do_show and nmrc.DO_PLOTTING:
         nmrc.fig.canvas.draw()
         nmrc.do_show = False
@@ -300,14 +313,15 @@ if __name__ == '__main__':
         
         # Positional Arguments:
         parser.add_argument('dataset-name', help='Specify name of dataset (for fast loading; matches are made on names starting with provided string).')
-        parser.add_argument('database-path', help="Specify path to top-level of image and odometry database (for fast loading).")
+        parser.add_argument('database-path', help="Specify path to where compressed databases exist (for fast loading).")
         parser.add_argument('ref-imgs-path', help="Specify path to reference images (for slow loading).")
         parser.add_argument('ref-odom-path', help="Specify path to reference odometry (for slow loading).")
-        parser.add_argument('image-topic-in', help="Specify input image topic (include /compressed if using a compressed topic).")
-        parser.add_argument('odometry-topic-in', help="Specify input odometry topic (include /compressed if using a compressed topic).")
+        parser.add_argument('image-topic-in', help="Specify input image topic (exclude /compressed).")
+        parser.add_argument('odometry-topic-in', help="Specify input odometry topic (exclude /compressed).")
 
         # Optional Arguments:
-        parser.add_argument('--do-compress', '-C', type=check_bool, default=False, help='Enable image compression IOs (default: %(default)s)')
+        parser.add_argument('--compress-in', '-Ci', type=check_bool, default=False, help='Enable image compression on input (default: %(default)s)')
+        parser.add_argument('--compress-out', '-Co', type=check_bool, default=False, help='Enable image compression on output (default: %(default)s)')
         parser.add_argument('--do-plotting', '-P', type=check_bool, default=False, help='Enable matplotlib visualisations (default: %(default)s)')
         parser.add_argument('--make-images', '-I', type=check_bool, default=False, help='Enable image topic generation (default: %(default)s)')
         parser.add_argument('--groundtruth', '-G', type=check_bool, default=False, help='Enable groundtruth inclusion (default: %(default)s)')
@@ -329,13 +343,12 @@ if __name__ == '__main__':
         parser.add_argument('--frame-id', '-f', default="base_link", help="Specify frame_id for messages (default: %(default)s).")
 
         # Parse args...
-        #raw_args = parser.parse_args()
         raw_args = parser.parse_known_args()
         args = vars(raw_args[0])
 
         # Hand to class ...
         nmrc = mrc(args['database-path'], args['ref-imgs-path'], args['ref-odom-path'], args['image-topic-in'], args['odometry-topic-in'], \
-                    args['dataset-name'], do_compress=args['do_compress'], do_plotting=args['do_plotting'], do_image=args['make_images'], \
+                    args['dataset-name'], compress_in=args['compress_in'], compress_out=args['compress_out'], do_plotting=args['do_plotting'], do_image=args['make_images'], \
                     do_groundtruth=args['groundtruth'], do_label=args['make_labels'], rate_num=args['rate'], ft_type=enum_get(args['ft_type'], FeatureType), \
                     img_dims=args['img_dims'], icon_settings=args['(size, distance)'], tolerance_threshold=args['tol_thresh'], \
                     tolerance_mode=enum_get(args['tol_mode'], Tolerance_Mode), match_metric='euclidean', namespace=args['namespace'], \
@@ -343,7 +356,7 @@ if __name__ == '__main__':
                     node_name=args['node_name'], anon=args['anon']\
                 )
 
-        rospy.loginfo("Reference list processed. Listening for queries...")    
+        rospy.loginfo("Initialisation complete. Listening for queries...")    
         
         while not rospy.is_shutdown():
             nmrc.rate_obj.sleep()

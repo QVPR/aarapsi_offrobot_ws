@@ -2,7 +2,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 ##################################################################
-#### Similarity Matrix Figure: do and update
+#### Sliding Similarity Matrix Figure: do and update
 
 def doMtrxFig(axes, odom_in):
     plt.sca(axes)

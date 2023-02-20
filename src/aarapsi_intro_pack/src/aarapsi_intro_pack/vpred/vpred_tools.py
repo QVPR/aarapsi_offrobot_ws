@@ -165,14 +165,15 @@ def find_baseline_performance_metrics(S,actual_match,tolerance):
 
 def plot_baseline_vs_closedloop_PRcurves(S,actual_match,tolerance,y_pred):
     p,r,tp,fp,tn,fn,d=find_baseline_performance_metrics(S,actual_match,tolerance)
-    plt.plot(r,p);
+    plt.plot(r,p)
     p,r,tp,fp,tn,fn,d=find_closedloop_performance_metrics(S,actual_match,tolerance,y_pred)
-    plt.plot(r,p); 
-    plt.xlim(0,1); plt.ylim(0,1);
-    plt.ylabel('Precision');
-    plt.xlabel('Recall');
-    plt.legend(['baseline','closed-loop']);
-    plt.title('Baseline vs Closed-Loop Performance');
+    plt.plot(r,p)
+    plt.xlim(0,1)
+    plt.ylim(0,1)
+    plt.ylabel('Precision')
+    plt.xlabel('Recall')
+    plt.legend(['baseline','closed-loop'])
+    plt.title('Baseline vs Closed-Loop Performance')
     return
 
 def find_mean_localisation_error(S,actual_match,y_pred=[0]):
