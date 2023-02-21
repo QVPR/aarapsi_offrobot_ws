@@ -12,6 +12,7 @@ import argparse as ap
 import os
 
 from scipy.spatial.distance import cdist
+
 from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped # Our custom msg structures
 from aarapsi_intro_pack import VPRImageProcessor, Tolerance_Mode, FeatureType, labelImage, makeImage, \
                                 doMtrxFig, updateMtrxFig, doDVecFig, updateDVecFig, doOdomFig, updateOdomFig
@@ -103,8 +104,6 @@ class mrc: # main ROS class
             self.fig, self.axes     = plt.subplots(1, 3, figsize=(15,4))
             self.timer_plot         = rospy.Timer(rospy.Duration(0.1), self.timer_plot_callback) # 10 Hz; Plot rate limiter
 
-        self.main_timer             = rospy.Timer(rospy.Duration(1/self.rate_num), self.main_cb) # Main loop rate limiter
-
         # flags to denest main loop:
         self.new_query              = False # new query image (MAKE_LABEL==True) or new label received (MAKE_LABEL==False)
         self.new_odom               = False # new odometry set
@@ -140,6 +139,9 @@ class mrc: # main ROS class
             self.ICON_DICT['good'] = cv2.resize(good_icon, (self.ICON_SIZE, self.ICON_SIZE), interpolation = cv2.INTER_AREA)
             self.ICON_DICT['poor'] = cv2.resize(poor_icon, (self.ICON_SIZE, self.ICON_SIZE), interpolation = cv2.INTER_AREA)
 
+        # Last item as it sets a flag that enables main loop execution.
+        self.main_timer             = rospy.Timer(rospy.Duration(1/self.rate_num), self.main_cb) # Main loop rate limiter
+
     def main_cb(self, event):
     # Toggle flag to let main loop continue execution
     # This is currently bottlenecked by node performance and a rate limiter regardless, but I have kept it for future work
@@ -163,9 +165,9 @@ class mrc: # main ROS class
         self.ego                = [msg.data.odom.x, msg.data.odom.y, msg.data.odom.z]
 
         if self.COMPRESS_IN:
-            self.store_query    = self.bridge.compressed_imgmsg_to_cv2(self.request.data.queryImage, "passthrough")
+            self.store_query    = self.bridge.compressed_imgmsg_to_cv2(self.request.queryImage, "passthrough")
         else:
-            self.store_query    = self.bridge.imgmsg_to_cv2(self.request.data.queryImage, "passthrough")
+            self.store_query    = self.bridge.imgmsg_to_cv2(self.request.queryImage, "passthrough")
 
         self.new_query          = True
 
@@ -181,10 +183,10 @@ class mrc: # main ROS class
     # Store newest image received
 
         if self.COMPRESS_IN:
-            self.store_query    = self.bridge.compressed_imgmsg_to_cv2(msg, "bgr8")
+            self.store_query_raw    = self.bridge.compressed_imgmsg_to_cv2(msg, "bgr8")
         else:
-            self.store_query    = self.bridge.imgmsg_to_cv2(msg, "passthrough")
-
+            self.store_query_raw    = self.bridge.imgmsg_to_cv2(msg, "passthrough")
+        self.store_query = self.store_query_raw[10:-1,200:-50]
         self.new_query          = True
         
     def getMatchInd(self, ft_qry, metric='euclidean'):
@@ -203,9 +205,8 @@ class mrc: # main ROS class
 
         return trueInd
 
-    def publish_ros_info(self, cv2_img, fid, tInd, mInd, dvc, mPath):
+    def publish_ros_info(self, cv2_img, fid, tInd, mInd, dvc, mPath, state):
     # Publish label and/or image feed
-
         if self.COMPRESS_OUT:
             ros_image_to_pub = self.bridge.cv2_to_compressed_imgmsg(cv2_img, "jpg") # jpg (png slower)
             struct_to_pub = CompressedImageLabelStamped()
@@ -216,14 +217,16 @@ class mrc: # main ROS class
         ros_image_to_pub.header.stamp = rospy.Time.now()
         ros_image_to_pub.header.frame_id = fid
 
-        struct_to_pub.data.queryImage = ros_image_to_pub
-        struct_to_pub.data.trueId = tInd
-        struct_to_pub.data.matchId = mInd
-        struct_to_pub.data.matchPath = mPath
+        struct_to_pub.queryImage = ros_image_to_pub
         struct_to_pub.data.odom.x = self.ego[0]
         struct_to_pub.data.odom.y = self.ego[1]
         struct_to_pub.data.odom.z = self.ego[2]
         struct_to_pub.data.dvc = dvc
+        struct_to_pub.data.matchId = mInd
+        struct_to_pub.data.trueId = tInd
+        struct_to_pub.data.state = state
+        struct_to_pub.data.compressed = self.COMPRESS_OUT
+        struct_to_pub.data.matchPath = mPath
         struct_to_pub.header.frame_id = fid
         struct_to_pub.header.stamp = rospy.Time.now()
 
@@ -240,7 +243,7 @@ def main_loop(nmrc):
         nmrc.do_show = False # clear flag
 
     if not (nmrc.new_query and (nmrc.new_odom or not nmrc.MAKE_LABEL) and nmrc.main_ready): # denest
-        #rospy.loginfo_throttle(60, "Waiting for a new query.") # print every 60 seconds
+        rospy.loginfo_throttle(60, "Waiting for a new query.") # print every 60 seconds
         return
 
     if (not nmrc.MAKE_LABEL): # use label subscriber feed instead
@@ -263,7 +266,8 @@ def main_loop(nmrc):
         nmrc.ICON_DICT['size'] = -1
 
     ground_truth_string = ""
-    if nmrc.GROUND_TRUTH and nmrc.MAKE_IMAGE: # set by node inputs
+    tolState = 0
+    if nmrc.GROUND_TRUTH: # set by node inputs
         # Determine if we are within tolerance:
         nmrc.ICON_DICT['icon'] = nmrc.ICON_DICT['poor']
         if nmrc.TOL_MODE == Tolerance_Mode.METRE_CROW_TRUE:
@@ -286,6 +290,9 @@ def main_loop(nmrc):
 
         if tolError < nmrc.TOL_THRES:
             nmrc.ICON_DICT['icon'] = nmrc.ICON_DICT['good']
+            tolState = 2
+        else:
+            tolState = 1
 
         ground_truth_string = ", Error: %2.2f%s" % (tolError, tolString)
 
@@ -319,7 +326,7 @@ def main_loop(nmrc):
         img_to_pub = nmrc.store_query
     
     # Make ROS messages
-    nmrc.publish_ros_info(img_to_pub, nmrc.FRAME_ID, trueInd, matchInd, dvc, nmrc.ref_info['paths'][matchInd])
+    nmrc.publish_ros_info(img_to_pub, nmrc.FRAME_ID, trueInd, matchInd, dvc, nmrc.ref_info['paths'][matchInd], tolState)
 
 if __name__ == '__main__':
     try:

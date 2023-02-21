@@ -16,9 +16,9 @@
     <arg name="ft_type" default="1"/>
 
     <arg name="tol_mode" default="2"/>
-    <arg name="tol_thresh" default="1.0"/>
+    <arg name="tol_thresh" default="0.5"/>
 
-    <arg name="compress_in" default="True"/>
+    <arg name="compress_in" default="False"/>
     <arg name="compress_out" default="False"/>
     <arg name="do_plotting" default="False"/>
     <arg name="make_images" default="False"/>

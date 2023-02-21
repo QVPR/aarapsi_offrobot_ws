@@ -56,8 +56,7 @@ catkin_python_setup()
 ## Generate messages in the 'msg' folder
 add_message_files(
   FILES
-  ImageLabel.msg
-  CompressedImageLabel.msg
+  LabelDetails.msg
   ImageLabelStamped.msg
   CompressedImageLabelStamped.msg
   Heartbeat.msg

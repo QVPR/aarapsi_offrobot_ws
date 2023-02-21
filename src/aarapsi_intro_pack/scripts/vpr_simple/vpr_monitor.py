@@ -3,27 +3,24 @@
 import rospy
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Image, CompressedImage
-from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped # Our custom structures
+from cv_bridge import CvBridge
 
-import cv2
 import numpy as np
 import rospkg
 from matplotlib import pyplot as plt
-from enum import Enum
-from cv_bridge import CvBridge
-
+import argparse as ap
 import os
 import sys
 from scipy.spatial.distance import cdist
-from tqdm import tqdm
-import argparse as ap
+
+from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped # Our custom structures
+from aarapsi_intro_pack import VPRImageProcessor, Tolerance_Mode, FeatureType
+from aarapsi_intro_pack.vpred import *
+from aarapsi_intro_pack.core.enum_tools import enum_value_options, enum_get
+from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_positive_two_int_tuple, check_positive_int, check_bool
 
 from sklearn import svm
 from sklearn.preprocessing import StandardScaler
-from aarapsi_intro_pack.vpred import *
-from aarapsi_intro_pack import Tolerance_Mode, VPRImageProcessor, FeatureType
-from aarapsi_intro_pack.core.enum_tools import enum_value_options, enum_get
-from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_positive_two_int_tuple, check_positive_int, check_bool
 
 class mrc: # main ROS class
     def __init__(self, ref_dataset_name, cal_dataset_name, database_path, image_feed_input, odometry_input, \
@@ -110,6 +107,50 @@ class mrc: # main ROS class
 
         self.calibrate()
         self.train()
+        #print(self.REF_REF_FOLDER)
+        print(self.ref_ip.image_features)
+        print(self.ref_ip.image_features.shape)
+        self.Sref = cdist(self.ref_ip.image_features, self.ref_ip.image_features, self.MATCH_METRIC)
+        self.Srefmean = self.Sref.mean()
+        self.Srefstd = self.Sref.std()
+
+        self.vpr_label_sub      = rospy.Subscriber(self.NAMESPACE + "/label" + self.in_img_tpc_mode, self.in_label_type, self.label_callback, queue_size=1)
+
+        # flags to denest main loop:
+        self.new_query              = False # new label received
+        self.main_ready             = False # rate limiter via timer
+
+        self.last_time              = rospy.Time.now()
+        self.time_history           = []
+
+        # Last item as it sets a flag that enables main loop execution.
+        self.main_timer             = rospy.Timer(rospy.Duration(1/self.rate_num), self.main_cb) # Main loop rate limiter
+
+        self.states                 = [0,0,0]
+
+    def main_cb(self, event):
+    # Toggle flag to let main loop continue execution
+    # This is currently bottlenecked by node performance and a rate limiter regardless, but I have kept it for future work
+
+        self.main_ready = True
+
+    def label_callback(self, msg):
+    # /vpr_nodes/label(/compressed) (aarapsi_intro_pack/(Compressed)ImageLabelStamped)
+    # Store new label message and act as drop-in replacement for odom_callback + img_callback
+
+        self.request            = msg
+
+        if self.request.data.trueId < 0:
+            self.GROUND_TRUTH   = False
+
+        self.ego                = [self.request.data.odom.x, self.request.data.odom.y, self.request.data.odom.z]
+
+        if self.COMPRESS_IN:
+            self.store_query    = self.bridge.compressed_imgmsg_to_cv2(self.request.queryImage, "passthrough")
+        else:
+            self.store_query    = self.bridge.imgmsg_to_cv2(self.request.queryImage, "passthrough")
+
+        self.new_query        = True
     
     def calibrate(self):
         #print(self.cal_ip.image_features.keys())
@@ -162,7 +203,32 @@ def exit(self):
     sys.exit()
 
 def main_loop(nmrc):
-    pass
+
+    if not (nmrc.new_query and nmrc.main_ready): # denest
+        rospy.loginfo_throttle(60, "Waiting for a new query.") # print every 60 seconds
+        return
+
+    rospy.loginfo("Query received.")
+    nmrc.new_query = False
+    nmrc.main_ready = False
+
+    sequence = (nmrc.request.data.dvc - nmrc.Srefmean) / nmrc.Srefstd # normalise using parameters from the reference set
+    factor_x = find_va_factor(np.c_[sequence])
+    factor_y = find_grad_factor(np.c_[sequence])
+    Xrt = np.c_[factor_x,factor_y]      # put the two factors into a 2-column vector
+    Xrt_scaled = nmrc.scaler.transform(Xrt)  # perform scaling using same parameters as calibration set
+    y_pred_rt = nmrc.model.predict(Xrt_scaled)[0] # Make the prediction: predict whether this match is good or bad
+
+    if nmrc.request.data.state == 0:
+        rospy.loginfo('integrity prediction: %s', y_pred_rt)
+    else:
+        gt_state_bool = bool(nmrc.request.data.state - 1)
+        if y_pred_rt == gt_state_bool:
+            rospy.loginfo('integrity prediction: %r [gt: %r]' % (y_pred_rt, gt_state_bool))
+        elif y_pred_rt == False and gt_state_bool == True:
+            rospy.logwarn('integrity prediction: %r [gt: %r]' % (y_pred_rt, gt_state_bool))
+        else:
+            rospy.logerr('integrity prediction: %r [gt: %r]' % (y_pred_rt, gt_state_bool))
 
 if __name__ == '__main__':
     try:
