@@ -106,10 +106,9 @@ class mrc: # main ROS class
         self.main_timer             = rospy.Timer(rospy.Duration(1/self.rate_num), self.main_cb) # Main loop rate limiter
 
         # flags to denest main loop:
-        self.new_query              = False # new query image
+        self.new_query              = False # new query image (MAKE_LABEL==True) or new label received (MAKE_LABEL==False)
         self.new_odom               = False # new odometry set
         self.main_ready             = False # rate limiter via timer
-        self.new_request            = False # new label received
         self.do_show                = False # plot rate limiter  via timer
 
         self.last_time              = rospy.Time.now()
@@ -168,7 +167,7 @@ class mrc: # main ROS class
         else:
             self.store_query    = self.bridge.imgmsg_to_cv2(self.request.data.queryImage, "passthrough")
 
-        self.new_request        = True
+        self.new_query          = True
 
     def odom_callback(self, msg):
     # /odometry/filtered (nav_msgs/Odometry)
@@ -240,15 +239,14 @@ def main_loop(nmrc):
         nmrc.fig.canvas.draw() # update all fig subplots
         nmrc.do_show = False # clear flag
 
-    if not (((nmrc.new_query and nmrc.new_odom) or nmrc.new_request) and nmrc.main_ready): # denest
+    if not (nmrc.new_query and (nmrc.new_odom or not nmrc.MAKE_LABEL) and nmrc.main_ready): # denest
         #rospy.loginfo_throttle(60, "Waiting for a new query.") # print every 60 seconds
         return
 
-    if nmrc.new_request: # use label subscriber feed instead
+    if (not nmrc.MAKE_LABEL): # use label subscriber feed instead
         dvc             = np.transpose(np.matrix(nmrc.request.data.dvc))
         matchInd        = nmrc.request.data.matchId
         trueInd         = nmrc.request.data.trueId
-
     else:
         ft_qry          = nmrc.image_processor.getFeat(nmrc.store_query, size=2)
         matchInd, dvc   = nmrc.getMatchInd(ft_qry, nmrc.MATCH_METRIC) # Find match
@@ -258,7 +256,6 @@ def main_loop(nmrc):
     nmrc.new_query      = False
     nmrc.new_odom       = False
     nmrc.main_ready     = False
-    nmrc.new_request    = False
 
     if nmrc.GROUND_TRUTH:
         trueInd = nmrc.getTrueInd() # find correct match based on shortest difference to measured odometry
