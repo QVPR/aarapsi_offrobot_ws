@@ -1,5 +1,8 @@
 import argparse as ap
 
+# Collection of functions that check whether an input can be appropriately cast
+# Functions are named check_(desired output type)
+
 # https://stackoverflow.com/questions/14117415/in-python-using-argparse-allow-only-positive-integers
 def check_positive_int(value):
     error_text = "%s is an invalid positive integer value." % (str(value))

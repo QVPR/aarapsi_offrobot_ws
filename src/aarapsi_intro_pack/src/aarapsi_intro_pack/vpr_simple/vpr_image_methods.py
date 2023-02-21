@@ -13,7 +13,9 @@ def labelImage(img_in, textstring, org_in, colour):
     return img_B
 
 def makeImage(query_raw, match_path, icon_to_use, icon_size=100, icon_dist=0):
-# Produce image to be published via ROS
+# Produce image to be published via ROS that has a side-by-side style of match (left) and query (right)
+# Query image comes in via cv2 variable query_raw
+# Match image comes in as a path, and gets loaded via imread
 
     match_img = cv2.imread(match_path)
     query_img = cv2.resize(query_raw, (match_img.shape[1], match_img.shape[0]), interpolation = cv2.INTER_AREA) # resize to match_img dimensions

@@ -11,6 +11,11 @@ from pathlib import Path
 import time
 from tqdm import tqdm
 
+# Odometry Image Processor Node:
+
+# - Subscribes to an image feed and an odometry feed
+# - Stores images and position data (position data labelled as odometry)
+
 class mrc: # main ROS class
     def __init__(self):
         self.robot_x    = 0

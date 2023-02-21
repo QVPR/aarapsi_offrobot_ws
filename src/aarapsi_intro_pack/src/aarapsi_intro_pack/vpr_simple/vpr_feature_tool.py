@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import rospy
+import rospy # comment this out if no ROS
 import numpy as np
 import os
 import cv2
@@ -9,11 +9,13 @@ from enum import Enum
 from tqdm import tqdm
 from aarapsi_intro_pack.core.file_system_tools import check_structure, scan_directory, find_shared_root
 
+# For image processing type
 class FeatureType(Enum):
     NONE = 0
     RAW = 1
     PATCHNORM = 2
 
+# For logging
 class State(Enum):
     DEBUG = "[DEBUG]"
     INFO = "[INFO]"
@@ -27,8 +29,15 @@ class VPRImageProcessor: # main ROS class
         self.clearImageVariables()
         self.clearOdomVariables()
 
+    # def print(self, text, state):
+    # # Print function helper
+    # # For use with no 'import rospy'
+    #     print(state.value + " " + text)
+
     def print(self, text, state):
-        if rospy.core.is_initialized():
+    # Print function helper
+    # For use with integration with ROS
+        if rospy.core.is_initialized(): # if used inside of a running ROS node
             if state == State.DEBUG:
                 rospy.logdebug(text)
             elif state == State.INFO:
@@ -43,6 +52,15 @@ class VPRImageProcessor: # main ROS class
             print(state.value + " " + text)
 
     def loadFull(self, img_path, odom_path, feat_type, img_dims):
+    # Load in odometry and image library (extended or basic) from raw files (.png and .csv)
+    # For basic: feed img_path path directly to folder containing images
+    # For extended: feed img_path to directory containing directories of images and odometry
+    # odom_path should always go to directory containing odom .csv files
+    # feat_type of enum type FeatureType
+    # img_dims a two-integer positive tuple containing image width and height (width, height) in pixels
+    # Returns two dictionaries; empty on fail.
+        self._img_info  = {} # init as empty
+        self._odom      = {} # ^
         self.print("[loadFull] Attempting to load library.", State.DEBUG)
         self.loadImageFeatures(img_path, feat_type, img_dims, skip_dirs=[odom_path])
         self.loadOdometry(odom_path)
@@ -52,11 +70,12 @@ class VPRImageProcessor: # main ROS class
         return self._img_info, self._odom
 
     def loadImageFeatures(self, img_path_input, feat_type, img_dims, skip_dirs=["odo"], root_separation_max=1):
+    # Load in images; handle basic & extended libraries
         self.FEAT_TYPE = feat_type
         self.IMG_DIMS = img_dims
 
         try:
-            if isinstance(img_path_input, list):
+            if isinstance(img_path_input, list): # handle input when user specifies directories for an extended library
                 _, dist, root = find_shared_root(img_path_input)
                 if dist > root_separation_max:
                     raise Exception("[loadImageFeatures] Error: list provided, but roots exceed specified (or default) directory separation limit (%d)!" % (root_separation_max))
@@ -64,7 +83,7 @@ class VPRImageProcessor: # main ROS class
                 dirs = img_path_input
                 img_set_root = root
                 self.print("[loadImageFeatures] Extended library specified, handling...", State.WARN)
-            elif isinstance(img_path_input, str):
+            elif isinstance(img_path_input, str): # handle normal input; still might be an extended library
                 self.EXTENDED_MODE, dirs = check_structure(img_path_input, ".png", at=True, skip=skip_dirs)
                 img_set_root = img_path_input
             else:
@@ -103,6 +122,7 @@ class VPRImageProcessor: # main ROS class
             return 0
     
     def loadOdometry(self, odom_path):
+    # Load in odometry from path
         self.ODOM_PATH = odom_path
         try:
             self.processOdomDataset()
@@ -178,6 +198,7 @@ class VPRImageProcessor: # main ROS class
         return data.keys()
 
     def npzLoader(self, database_path, filename):
+    # Public method. Specify directory path containing .npz file (database_path) and the filename (or an incomplete but unique file prefix)
         try:
             data_keys = self._npzLoader(database_path, filename)
             key_string = str(np.fromiter(data_keys, (str, 20))).replace('\'', '').replace('\n', '').replace(' ', ', ')
@@ -191,6 +212,10 @@ class VPRImageProcessor: # main ROS class
             return False
 
     def npzDatabaseLoadSave(self, database_path, filename, img_path, odom_path, feat_type, img_dims, do_save=False):
+    # Public method. Handles fast loading and slow loading (in the latter, loaded data can be saved for fast loading next time)
+    # database_path, filename as per npzLoader.
+    # img_path, odom_path, feat_type, and img_dims as per loadFull
+    # do_save=True enables saving for fast loading (with directory/filename specified by database_path and filename respectively)
         load_status = self.npzLoader(database_path, filename)
         if not load_status:
             self.print("[npzDatabaseLoadSave] Load failed. Building normally.", State.WARN)
@@ -202,6 +227,7 @@ class VPRImageProcessor: # main ROS class
         return self._img_info, self._odom
     
     def save2npz(self, database_path, filename):
+    # Public method. Handles saving the loaded/set attributes of the class instance as a fast loading .npz library/dict file.
         # check we have stuff to save:
         if not (self.IMAGES_LOADED):
             raise Exception("[save2npz] No images loaded. loadImageFeatures() must be performed before any save process can be performed.")
@@ -223,6 +249,8 @@ class VPRImageProcessor: # main ROS class
         # perform save to compressed numpy file:
         try:
             self.print("[save2npz] Saving data as '%s'." % (full_file_path), State.INFO)
+            # Perform actual save operation, where each dict key is assigned as the variable name on the left-hand-side of equality 
+            # i.e. filename, ft, x, y, and z will be dict keys, with lists (or dicts for extended libraries) assigned to them.
             np.savez(full_file_path, filename=full_file_path, ft=self.image_features, x=self.odom_x, y=self.odom_y, z=self.odom_z, \
                         odom_paths=self.odom_paths, image_paths=self.image_paths, fttype=self.FEAT_TYPE, imgdims=self.IMG_DIMS, \
                         odom_root=self.ODOM_PATH, image_root=self.IMG_PATH, extended=self.EXTENDED_MODE)
@@ -235,7 +263,7 @@ class VPRImageProcessor: # main ROS class
         self.IMG_DIMS           = (0,0)
         self.image_features     = []
         self.IMAGES_LOADED      = False
-        self.EXTENDED_MODE      = False
+        self.EXTENDED_MODE      = False # presently extended mode only extends stored image data
 
     def clearOdomVariables(self):
         self.ODOM_PATH          = ""
