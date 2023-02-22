@@ -1,0 +1,20 @@
+.content {
+  max-width: 1080px;
+}
+
+.joystickdiv {
+  padding: 120px 120px;
+  position: relative;
+}
+
+.switchdiv {
+  padding: 10px 10px;
+  position: relative;
+}
+
+.tab {
+  color: rgba(255, 255, 255, 0.56);
+  color-fill: rgba(0, 0, 0, 0.56);
+  flood-color: rgba(0, 0, 0, 0.56);
+  border-color: rgba(255, 255, 255, 0.89);
+}

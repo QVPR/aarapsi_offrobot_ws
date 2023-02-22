@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Jackal Control GUI</title>
+
+    <meta charset="utf-8" />
+
+    <!-- <script> var address = '127.0.0.1' </script> -->
+    <script> var address = '172.19.31.76' </script>
+    <script> var port = '9091' </script>
+    <script type="text/javascript" src="../material.min.js"></script>
+    <script type="text/javascript" src="../roslib.min.js"></script>
+    <script type="text/javascript" src="../nipple.js"></script>
+    <script type="text/javascript" src="../rosscript.js"></script>
+
+    <link rel="stylesheet" href="../material.cyan-light_blue.min.css">
+    <link rel="stylesheet" href="../styles.css">
+    
+  </head>
+  <body>
+    <div class="mdl-grid content">
+
+      <div class="mdl-shadow--2dp mdl-color--white mdl-cell mdl-cell--12-col">
+        <h2 align="center">Jackal Control GUI</h2>
+        <p align="center">Connection status: <span id="status"></span></p>
+        <p align="center">Last /txt_msg received: <span id="msg"></span></p>
+      </div>
+
+      <!-- <div class="mdl-shadow--2dp mdl-color--white mdl-cell mdl-cell--6-col"> -->
+      <div class="mdl-shadow--2dp mdl-color--white mdl-cell mdl-cell--12-col">
+        <div id="zone_joystick" class= "joystickdiv">
+        </div>
+        <!-- 
+        <div class="switchdiv mdl-cell--6-col">
+          <label for="switch1" class="mdl-switch mdl-js-switch mdl-js-ripple-effect">
+            <input type="checkbox" id="switch1" class="mdl-switch__input">
+            <span class="mdl-switch__label">Keyboard Teleop</span>
+          </label>
+        </div>
+        <div class="switchdiv mdl-cell--6-col">
+          <label for="switch2" class="mdl-switch mdl-js-switch mdl-js-ripple-effect">
+            <input type="checkbox" id="switch2" class="mdl-switch__input">
+            <span class="mdl-switch__label">Joystick Teleop</span>
+          </label>
+        </div>
+        -->
+      </div>
+      <!--  
+      <div class="mdl-shadow--2dp mdl-color--white mdl-cell mdl-cell--6-col">
+      </div>
+
+      <div class = "mdl-tabs mdl-js-tabs">
+        <div class = "mdl-tabs__tab-bar">
+          <a href = "#tab1-panel" class = "mdl-tabs__tab is-active">GPS Position</a>
+          <a href = "#tab2-panel" class = "mdl-tabs__tab">GPS Velocity</a>
+          <a href = "#tab3-panel" class = "mdl-tabs__tab">IMU Data</a>
+          <a href = "#tab4-panel" class = "mdl-tabs__tab">Base Odometry</a>
+        </div>
+      
+        <div class = "mdl-tabs__panel is-active" id = "tab1-panel">
+          <p><span id="Tab1_CONTENT"></span></p>
+        </div>
+      
+        <div class = "mdl-tabs__panel" id = "tab2-panel">
+          <p><span id="Tab2_CONTENT"></span></p>
+        </div>
+      
+        <div class = "mdl-tabs__panel" id = "tab3-panel">
+          <p><span id="Tab3_CONTENT"></span></p>
+        </div>
+      
+        <div class = "mdl-tabs__panel" id = "tab4-panel">
+          <p><span id="Tab4_CONTENT"></span></p>
+        </div>
+      </div>
+      -->
+    </div>
+  </body>
+</html>

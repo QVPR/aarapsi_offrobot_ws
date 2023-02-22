@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+  <node name="gui_launcher" pkg="robot_gui_bridge" type="gui.sh"/>
+  <include file="$(find rosbridge_server)/launch/rosbridge_websocket.launch">
+    <arg name="address" default="172.19.31.76" />
+    <arg name="port" default="9091" />
+  </include>
+</launch>
