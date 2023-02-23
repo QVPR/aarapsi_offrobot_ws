@@ -1,19 +1,19 @@
 <launch>
-    <arg name="dataset_name" default="ccw_zeroed_20230208"/>
+    <arg name="dataset_name" default="s1_ccw_z_230208_o0_e0"/>
     
-    <arg name="query_feed" default="forward"/>
-    <arg name="odometry_folder" default="odo"/>
     <arg name="rate" default="20.0"/>
     <arg name="node_name" default="vpr_primer"/>
     <arg name="anon" default="True"/>
 
     <arg name="database_path" default="$(find aarapsi_intro_pack)/data/compressed_sets"/>
-    <arg name="ref_imgs_path" default="$(find aarapsi_intro_pack)/data/$(arg dataset_name)/$(arg query_feed)"/>
-    <arg name="ref_odom_path" default="$(find aarapsi_intro_pack)/data/$(arg dataset_name)/$(arg odometry_folder)"/>
+    <arg name="ref_root" default="$(find aarapsi_intro_pack)/data/$(arg dataset_name)/"/>
+    <!-- <arg name="ref_imgs_path" default="[$(arg ref_root)forward,$(arg ref_root)left,$(arg ref_root)right,$(arg ref_root)panorama]"/> -->
+    <arg name="ref_imgs_path" default="$(arg ref_root)forward"/>
+    <arg name="ref_odom_path" default="$(arg ref_root)odometry.csv"/>
     <arg name="image_topic_in" default="/ros_indigosdk_occam/image0"/>
     <arg name="odometry_topic_in" default="/odometry/filtered"/>
 
-    <arg name="img_dims" default="(64,64)"/>
+    <arg name="img_dims" default="(32,32)"/>
     <arg name="ft_type" default="1"/>
 
     <arg name="tol_mode" default="2"/>

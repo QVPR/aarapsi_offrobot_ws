@@ -70,8 +70,8 @@ class VPRImageProcessor: # main ROS class
     # Returns full dictionary; empty on fail.
 
         self.print("[loadFull] Attempting to load library.", State.DEBUG)
-        self.loadImageFeatures(img_paths, feat_type, img_dims, skip_dirs=[odom_path])
-        self.loadOdometry(odom_path)
+        if not self.loadImageFeatures(img_paths, feat_type, img_dims, skip_dirs=[odom_path]): raise Exception("Fatal")
+        if not len(self.loadOdometry(odom_path)): raise Exception("Fatal")
         self.buildFullDictionary()
         if not (self.IMAGES_LOADED and self.ODOM_LOADED):
             self.print("[loadFull] Terminating; load procedure failed.", State.FATAL)
@@ -82,7 +82,11 @@ class VPRImageProcessor: # main ROS class
     # Load in images
 
         if not isinstance(img_paths, list):
-            raise Exception("img_paths provided is not of type list.")
+            if isinstance(img_paths, str):
+                self.print("[loadImageFeatures] img_paths is of type str and not type list. Wrapping in a list to proceed.")
+                img_paths = [img_paths]
+            else:
+                raise Exception("img_paths provided is not of type list.")
 
         if not isinstance(feat_type, FeatureType):
             raise Exception("feat_type provided is not of type FeatureType.")
@@ -103,7 +107,7 @@ class VPRImageProcessor: # main ROS class
             return len(self.IMG_PATHS)
     
         except Exception as e:
-            self.print("[loadImageFeatures] Unable to interpret, failed. Check variables.\nEnsure: img_paths is a valid string array, feat_type is a valid FeatureType value (not NONE!), and image dimensions are a two-element integer tuple of valid dimensions (greater than zero).\nCode: %s" % (e), State.ERROR)
+            self.print("[loadImageFeatures] Unable to interpret, failed. Check variables.\nEnsure: img_paths is a valid string array, feat_type is a valid FeatureType value (not NONE), and image dimensions are a two-element integer tuple of valid dimensions (greater than zero).\nCode: %s" % (e), State.ERROR)
             self.clearImageVariables()
             return 0
 
@@ -150,13 +154,20 @@ class VPRImageProcessor: # main ROS class
             with open(self.ODOM_PATH, 'r') as f:
                 reader = csv.reader(f, delimiter=',')
                 for row in reader:
-                    self.TIMES.append(          row[0])
-                    self._POSI['x'].append(     row[1])
-                    self._POSI['y'].append(     row[2])
-                    self._POSI['yaw'].append(   row[3])
-                    self._VELO['x'].append(     row[4])
-                    self._VELO['y'].append(     row[5])
-                    self._VELO['yaw'].append(   row[6])
+                    self.TIMES.append(          float(row[0]))
+                    self._POSI['x'].append(     float(row[1]))
+                    self._POSI['y'].append(     float(row[2]))
+                    self._POSI['yaw'].append(   float(row[3]))
+                    self._VELO['x'].append(     float(row[4]))
+                    self._VELO['y'].append(     float(row[5]))
+                    self._VELO['yaw'].append(   float(row[6]))
+            self.TIMES          = np.array(self.TIMES)       
+            self._POSI['x']     = np.array(self._POSI['x'])  
+            self._POSI['y']     = np.array(self._POSI['y'])  
+            self._POSI['yaw']   = np.array(self._POSI['yaw'])
+            self._VELO['x']     = np.array(self._VELO['x'])  
+            self._VELO['y']     = np.array(self._VELO['y'])  
+            self._VELO['yaw']   = np.array(self._VELO['yaw'])
         else:
             raise Exception("[processOdomDataset] No file at path - cannot continue.")
         return self.TIMES, self._POSI, self._VELO
@@ -205,6 +216,7 @@ class VPRImageProcessor: # main ROS class
         file_found = False
         for entry in os.scandir(database_path):
             if entry.is_file() and entry.name.startswith(filename):
+                self.print("[_npzLoader] File found: %s" % (entry.name), State.INFO)
                 data = np.load(entry.path, allow_pickle=True)
                 file_found = True
                 break
@@ -220,7 +232,7 @@ class VPRImageProcessor: # main ROS class
         self.IMG_PATHS = data['image_paths']
 
         self.FEAT_TYPE = data['feat_type']
-        self.IMG_DIMS = data['img_dims']
+        self.IMG_DIMS = tuple(data['img_dims'])
 
         self.ODOM_LOADED = True
         self.IMAGES_LOADED = True
@@ -249,7 +261,7 @@ class VPRImageProcessor: # main ROS class
     # img_paths, odom_path, feat_type, and img_dims as per loadFull
     # do_save=True enables saving for fast loading (with directory/filename specified by database_path and filename respectively)
 
-        if not self.npzLoader(database_path, filename):
+        if not self.npzLoader(database_path, filename + "_%d" % (img_dims[0])):
             self.print("[npzDatabaseLoadSave] Fast load failed. Building normally.", State.WARN)
             self.SET_DICT = self.loadFull(img_paths, odom_path, feat_type, img_dims)
             if not len(self.SET_DICT):
@@ -266,7 +278,7 @@ class VPRImageProcessor: # main ROS class
         self.IMG_PATHS          = ""
         self.FEAT_TYPE          = FeatureType.NONE
         self.IMG_DIMS           = (0,0)
-        self.image_features     = []
+        self.IMG_FEATS          = []
         self.IMAGES_LOADED      = False
 
     def clearOdomVariables(self):
@@ -355,8 +367,18 @@ class VPRImageProcessor: # main ROS class
 # sizes = [8, 16, 32, 64, 400]
 # for i in sizes:
 #     dicts.append(test.npzDatabaseLoadSave(DATABASE_PATH, SET_NAME + "_%d" % (i), REF_IMG_PATHS, REF_ODOM_PATH, FEAT_TYPE, (i,i), do_save=True))
-
+# print((tuple(dicts[0]['img_dims']), (8,8)))
 # index = 4
 # img = np.reshape(np.array(dicts[index]['img_feats']['panorama'])[0,:],(sizes[index],-1))
 # plt.imshow(img)
 # plt.show()
+
+# dict_single = test.npzDatabaseLoadSave(DATABASE_PATH, SET_NAME + "_%d" % (8), REF_IMG_PATHS, REF_ODOM_PATH, FEAT_TYPE, (8,8), do_save=True)
+
+# print(type((dict_single['odom']['position']['x'])[0]))
+# print(type((dict_single['odom']['position']['y'])[0]))
+# print(type((dict_single['odom']['position']['yaw'])[0]))
+# print(type((dict_single['odom']['velocity']['x'])[0]))
+# print(type((dict_single['odom']['velocity']['y'])[0]))
+# print(type((dict_single['odom']['velocity']['yaw'])[0]))
+# print(type((dict_single['times'])[0]))

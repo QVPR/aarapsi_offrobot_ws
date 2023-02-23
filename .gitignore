@@ -7,3 +7,4 @@ src/aarapsi_intro_pack/data/
 .prof
 __pycache__
 src/CMakeLists.txt
+*:Zone.Identifier

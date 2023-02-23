@@ -17,7 +17,7 @@ from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStampe
 from aarapsi_intro_pack import VPRImageProcessor, Tolerance_Mode, FeatureType, labelImage, makeImage, \
                                 doMtrxFig, updateMtrxFig, doDVecFig, updateDVecFig, doOdomFig, updateOdomFig
 from aarapsi_intro_pack.core.enum_tools import enum_value_options, enum_get
-from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_positive_two_int_tuple, check_positive_int, check_bool
+from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_positive_two_int_tuple, check_positive_int, check_bool, check_str_list
 
 class mrc: # main ROS class
     def __init__(self, database_path, ref_images_path, ref_odometry_path, image_feed_input, odometry_input, dataset_name, \
@@ -115,20 +115,17 @@ class mrc: # main ROS class
 
         # Process reference data (only needs to be done once)
         self.image_processor        = VPRImageProcessor()
-        self.ref_info,self.ref_odom = self.image_processor.npzDatabaseLoadSave(self.DATABASE_PATH, self.REF_DATA_NAME, \
+        self.ref_dict               = self.image_processor.npzDatabaseLoadSave(self.DATABASE_PATH, self.REF_DATA_NAME, \
                                                                                 self.REF_IMG_PATH, self.REF_ODOM_PATH, \
                                                                                 self.FEAT_TYPE, self.IMG_DIMS, do_save=True)
-        if self.image_processor.EXTENDED_MODE == True:
-            rospy.logwarn("Data set was an extended set, but this node only supports basic sets. Reducing to basic set.")
-            self.ref_info = {'fts': self.image_processor.image_features['forward_corrected'], \
-                             'paths': self.image_processor.image_paths['forward_corrected']}
+        self.img_folder             = 'forward'
 
         if self.DO_PLOTTING:
             # Prepare figures:
             self.fig.suptitle("Odometry Visualised")
-            self.fig_mtrx_handles = doMtrxFig(self.axes[0], self.ref_odom) # Make simularity matrix figure
-            self.fig_dvec_handles = doDVecFig(self.axes[1], self.ref_odom) # Make distance vector figure
-            self.fig_odom_handles = doOdomFig(self.axes[2], self.ref_odom) # Make odometry figure
+            self.fig_mtrx_handles = doMtrxFig(self.axes[0], self.ref_dict['odom']) # Make simularity matrix figure
+            self.fig_dvec_handles = doDVecFig(self.axes[1], self.ref_dict['odom']) # Make distance vector figure
+            self.fig_odom_handles = doOdomFig(self.axes[2], self.ref_dict['odom']) # Make odometry figure
             self.fig.show()
 
         self.ICON_DICT = {'size': self.ICON_SIZE, 'dist': self.ICON_DIST, 'icon': [], 'good': [], 'poor': []}
@@ -186,21 +183,20 @@ class mrc: # main ROS class
             self.store_query_raw    = self.bridge.compressed_imgmsg_to_cv2(msg, "bgr8")
         else:
             self.store_query_raw    = self.bridge.imgmsg_to_cv2(msg, "passthrough")
-        self.store_query = self.store_query_raw[10:-1,200:-50]
+        self.store_query = self.store_query_raw#[10:-1,200:-50]
         self.new_query          = True
         
     def getMatchInd(self, ft_qry, metric='euclidean'):
     # top matching reference index for query
 
-        dMat = cdist(self.ref_info['fts'], ft_qry, metric) # metric: 'euclidean' or 'cosine'
+        dMat = cdist(self.ref_dict['img_feats'][self.img_folder], ft_qry, metric) # metric: 'euclidean' or 'cosine'
         mInd = np.argmin(dMat[:])
         return mInd, dMat
     
     def getTrueInd(self):
     # Compare measured odometry to reference odometry and find best match
-
-        squares = np.square(np.array(self.ref_odom['x']) - self.ego[0]) + \
-                            np.square(np.array(self.ref_odom['y']) - self.ego[1])  # no point taking the sqrt; proportional
+        squares = np.square(np.array(self.ref_dict['odom']['position']['x']) - self.ego[0]) + \
+                            np.square(np.array(self.ref_dict['odom']['position']['y']) - self.ego[1])  # no point taking the sqrt; proportional
         trueInd = np.argmin(squares)
 
         return trueInd
@@ -271,16 +267,16 @@ def main_loop(nmrc):
         # Determine if we are within tolerance:
         nmrc.ICON_DICT['icon'] = nmrc.ICON_DICT['poor']
         if nmrc.TOL_MODE == Tolerance_Mode.METRE_CROW_TRUE:
-            tolError = np.sqrt(np.square(nmrc.ref_odom['x'][trueInd] - nmrc.ego[0]) + \
-                    np.square(nmrc.ref_odom['y'][trueInd] - nmrc.ego[1])) 
+            tolError = np.sqrt(np.square(nmrc.ref_dict['odom']['position']['x'][trueInd] - nmrc.ego[0]) + \
+                    np.square(nmrc.ref_dict['odom']['position']['y'][trueInd] - nmrc.ego[1])) 
             tolString = "MCT"
         elif nmrc.TOL_MODE == Tolerance_Mode.METRE_CROW_MATCH:
-            tolError = np.sqrt(np.square(nmrc.ref_odom['x'][matchInd] - nmrc.ego[0]) + \
-                    np.square(nmrc.ref_odom['y'][matchInd] - nmrc.ego[1])) 
+            tolError = np.sqrt(np.square(nmrc.ref_dict['odom']['position']['x'][matchInd] - nmrc.ego[0]) + \
+                    np.square(nmrc.ref_dict['odom']['position']['y'][matchInd] - nmrc.ego[1])) 
             tolString = "MCM"
         elif nmrc.TOL_MODE == Tolerance_Mode.METRE_LINE:
-            tolError = np.sqrt(np.square(nmrc.ref_odom['x'][trueInd] - nmrc.ref_odom['x'][matchInd]) + \
-                    np.square(nmrc.ref_odom['y'][trueInd] - nmrc.ref_odom['y'][matchInd])) 
+            tolError = np.sqrt(np.square(nmrc.ref_dict['odom']['position']['x'][trueInd] - nmrc.ref_dict['odom']['position']['x'][matchInd]) + \
+                    np.square(nmrc.ref_dict['odom']['position']['y'][trueInd] - nmrc.ref_dict['odom']['position']['y'][matchInd])) 
             tolString = "ML"
         elif nmrc.TOL_MODE == Tolerance_Mode.FRAME:
             tolError = np.abs(matchInd - trueInd)
@@ -298,13 +294,13 @@ def main_loop(nmrc):
 
     if nmrc.DO_PLOTTING: # set by node input
         # Update odometry visualisation:
-        updateMtrxFig(matchInd, trueInd, dvc, nmrc.ref_odom, nmrc.fig_mtrx_handles)
-        updateDVecFig(matchInd, trueInd, dvc, nmrc.ref_odom, nmrc.fig_dvec_handles)
-        updateOdomFig(matchInd, trueInd, dvc, nmrc.ref_odom, nmrc.fig_odom_handles)
+        updateMtrxFig(matchInd, trueInd, dvc, nmrc.ref_dict['odom'], nmrc.fig_mtrx_handles)
+        updateDVecFig(matchInd, trueInd, dvc, nmrc.ref_dict['odom'], nmrc.fig_dvec_handles)
+        updateOdomFig(matchInd, trueInd, dvc, nmrc.ref_dict['odom'], nmrc.fig_odom_handles)
 
     if nmrc.MAKE_IMAGE: # set by node input
         # make labelled match+query image and add icon for groundtruthing (if enabled):
-        cv2_image_to_pub = makeImage(nmrc.store_query, nmrc.ref_info['paths'][matchInd], \
+        cv2_image_to_pub = makeImage(nmrc.store_query, np.reshape(np.array(nmrc.ref_dict['img_feats'][nmrc.img_folder])[matchInd,:], nmrc.ref_dict['img_dims']), \
                                         nmrc.ICON_DICT['icon'], icon_size=nmrc.ICON_DICT['size'], icon_dist=nmrc.ICON_DICT['dist'])
         
         # Measure timing for recalculating average rate:
@@ -326,7 +322,7 @@ def main_loop(nmrc):
         img_to_pub = nmrc.store_query
     
     # Make ROS messages
-    nmrc.publish_ros_info(img_to_pub, nmrc.FRAME_ID, trueInd, matchInd, dvc, nmrc.ref_info['paths'][matchInd], tolState)
+    nmrc.publish_ros_info(img_to_pub, nmrc.FRAME_ID, trueInd, matchInd, dvc, str(nmrc.ref_dict['image_paths']).replace('\'',''), tolState)
 
 if __name__ == '__main__':
     try:
@@ -337,7 +333,7 @@ if __name__ == '__main__':
         # Positional Arguments:
         parser.add_argument('dataset-name', help='Specify name of dataset (for fast loading; matches are made on names starting with provided string).')
         parser.add_argument('database-path', help="Specify path to where compressed databases exist (for fast loading).")
-        parser.add_argument('ref-imgs-path', help="Specify path to reference images (for slow loading).")
+        parser.add_argument('ref-imgs-path', type=check_str_list, help="Specify path to reference images (for slow loading).")
         parser.add_argument('ref-odom-path', help="Specify path to reference odometry (for slow loading).")
         parser.add_argument('image-topic-in', help="Specify input image topic (exclude /compressed).")
         parser.add_argument('odometry-topic-in', help="Specify input odometry topic (exclude /compressed).")
@@ -368,6 +364,7 @@ if __name__ == '__main__':
         # Parse args...
         raw_args = parser.parse_known_args()
         args = vars(raw_args[0])
+        
 
         # Hand to class ...
         nmrc = mrc(args['database-path'], args['ref-imgs-path'], args['ref-odom-path'], args['image-topic-in'], args['odometry-topic-in'], \

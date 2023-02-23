@@ -33,9 +33,9 @@ def check_bool(value):
     if isinstance(value, str): return value.lower() == "true"
     raise Exception(error_text)
 
-def check_positive_two_int_tuple(raw_value):
-    error_text = "%s is an invalid positive two-integer tuple." % (str(raw_value))
-    str_value = str(raw_value) # force to string
+def check_positive_two_int_tuple(value):
+    error_text = "%s is an invalid positive two-integer tuple." % (str(value))
+    str_value = str(value) # force to string
     value_list = str_value.replace(' ', '').replace('(','').replace(')','').split(',')
     if not len(value_list) == 2:
         raise ap.ArgumentTypeError(error_text) 
@@ -48,3 +48,21 @@ def check_positive_two_int_tuple(raw_value):
     if not (ivalue[0] > 0 and ivalue[1] > 0):
         raise ap.ArgumentTypeError(error_text)
     return ivalue
+
+def check_str_list(value):
+    error_text = "%s is an invalid string list." % (str(value))
+    if isinstance(value, list):
+        if len(value) > 1:
+            if isinstance(value[0], str):
+                return value
+            raise ap.ArgumentTypeError(error_text)
+        elif len(value) == 1:
+            value = value[0]
+        else:
+            raise ap.ArgumentTypeError(error_text)
+    try:
+        str_value = str(value) # force to string
+        str_value_list = str_value.replace('[','').replace(']','').replace(' ', '').split(',')
+        return str_value_list
+    except:
+        raise ap.ArgumentTypeError(error_text)

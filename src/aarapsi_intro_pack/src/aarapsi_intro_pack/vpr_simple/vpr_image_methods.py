@@ -12,20 +12,26 @@ def labelImage(img_in, textstring, org_in, colour):
                                 color=colour, thickness=2, lineType=cv2.LINE_AA)
     return img_B
 
-def makeImage(query_raw, match_path, icon_to_use, icon_size=100, icon_dist=0):
+def makeImage(query_raw, match_raw, icon_to_use, icon_size=100, icon_dist=0):
 # Produce image to be published via ROS that has a side-by-side style of match (left) and query (right)
 # Query image comes in via cv2 variable query_raw
-# Match image comes in as a path, and gets loaded via imread
+# Match image comes in from ref_dict
 
-    match_img = cv2.imread(match_path)
-    query_img = cv2.resize(query_raw, (match_img.shape[1], match_img.shape[0]), interpolation = cv2.INTER_AREA) # resize to match_img dimensions
+    query_img = cv2.resize(query_raw, (500,500), interpolation = cv2.INTER_AREA)
+    match_img = cv2.resize(match_raw, (500,500), interpolation = cv2.INTER_AREA)
+
+    # Handle B&W images:
+    if len(match_img.shape) == 2:
+        match_img = np.repeat(match_img[:,:,np.newaxis], 3, axis=2)
+    if len(query_img.shape) == 2:
+        query_img = np.repeat(query_img[:,:,np.newaxis], 3, axis=2)
     
     match_img_lab = labelImage(match_img, "Reference", (20,40), (100,255,100))
     query_img_lab = labelImage(query_img, "Query", (20,40), (100,255,100))
 
     if icon_size > 0:
         # Add Icon:
-        img_slice = match_img_lab[-1 - icon_size - icon_dist:-1 - icon_dist, -1 - icon_size - icon_dist:-1 - icon_dist, :]
+        img_slice = match_img_lab[-1-icon_size-icon_dist:-1-icon_dist, icon_dist:icon_dist+icon_size, :]
         # https://docs.opencv.org/3.4/da/d97/tutorial_threshold_inRange.html
         icon_mask_inv = cv2.inRange(icon_to_use, (50,50,50), (255,255,255)) # get border (white)
         icon_mask = 255 - icon_mask_inv # get shape

@@ -6,7 +6,7 @@ from matplotlib import pyplot as plt
 
 def doMtrxFig(axes, odom_in):
     plt.sca(axes)
-    mtrx_image = np.zeros((len(odom_in['x']), len(odom_in['x'])))
+    mtrx_image = np.zeros((len(odom_in['position']['x']), len(odom_in['position']['x'])))
     mtrx_handle = axes.imshow(mtrx_image)
     axes.set(xlabel='Query Frame', ylabel='Reference Frame')
 
@@ -32,7 +32,7 @@ def doDVecFig(axes, odom_in):
     actual_dist = plt.plot([], [], 'mo', markersize=7)[0] # true image (correct match)
     axes.set(xlabel='Index', ylabel='Distance')
     axes.legend(["Image Distances", "Selected", "True"])
-    axes.set_xlim(0, len(odom_in['x']))
+    axes.set_xlim(0, len(odom_in['position']['x']))
     axes.set_ylim(0, 1.2)
 
     return {'axes': axes, 'dis': dist_vector, 'low': lowest_dist, 'act': actual_dist}
@@ -59,7 +59,7 @@ def doOdomFig(axes, odom_in):
 # Set up odometry figure
 
     plt.sca(axes)
-    ref_plotted = plt.plot(odom_in['x'], odom_in['y'], 'b-')[0]
+    ref_plotted = plt.plot(odom_in['position']['x'], odom_in['position']['y'], 'b-')[0]
     mat_plotted = plt.plot([], [], 'r+', markersize=6)[0] # Match values: init as empty
     tru_plotted = plt.plot([], [], 'gx', markersize=4)[0] # True value: init as empty
 
@@ -81,8 +81,8 @@ def updateOdomFig(mInd, tInd, dvc, odom_in, fig_handles):
         
     ## odometry plot:
     # Append new value for "match" (what it matched the image to)
-    fig_handles['mat'].set_xdata(np.append(fig_handles['mat'].get_xdata()[start_ind:num_queries], odom_in['x'][mInd]))
-    fig_handles['mat'].set_ydata(np.append(fig_handles['mat'].get_ydata()[start_ind:num_queries], odom_in['y'][mInd]))
+    fig_handles['mat'].set_xdata(np.append(fig_handles['mat'].get_xdata()[start_ind:num_queries], odom_in['position']['x'][mInd]))
+    fig_handles['mat'].set_ydata(np.append(fig_handles['mat'].get_ydata()[start_ind:num_queries], odom_in['position']['y'][mInd]))
     # Append new value for "true" (what it should be from the robot odom)
-    fig_handles['tru'].set_xdata(np.append(fig_handles['tru'].get_xdata()[start_ind:num_queries], odom_in['x'][tInd]))
-    fig_handles['tru'].set_ydata(np.append(fig_handles['tru'].get_ydata()[start_ind:num_queries], odom_in['y'][tInd]))
+    fig_handles['tru'].set_xdata(np.append(fig_handles['tru'].get_xdata()[start_ind:num_queries], odom_in['position']['x'][tInd]))
+    fig_handles['tru'].set_ydata(np.append(fig_handles['tru'].get_ydata()[start_ind:num_queries], odom_in['position']['y'][tInd]))
