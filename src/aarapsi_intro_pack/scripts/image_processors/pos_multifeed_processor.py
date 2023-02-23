@@ -24,8 +24,8 @@ class mrc: # main ROS class
         self.robot_z            = 0
         self.frame_n            = 0 # n'th image recorded
 
-        rospy.init_node('odom_multiimage_processor', anonymous=True)
-        rospy.loginfo('Starting odom_multiimage_processor node.')
+        rospy.init_node('pos_multifeed_processor', anonymous=True)
+        rospy.loginfo('Starting pos_multifeed_processor node.')
         
         self.rate_num           = 4.0 # Hz
         self.rate_obj           = rospy.Rate(self.rate_num)

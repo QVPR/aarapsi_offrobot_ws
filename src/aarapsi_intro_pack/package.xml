@@ -44,6 +44,7 @@
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>tf2</exec_depend>
+  <exec_depend>tf</exec_depend>
   <exec_depend>message_runtime</exec_depend>
 
   <exec_depend>python3-rospkg</exec_depend>
@@ -57,6 +58,7 @@
   <exec_depend>python3-pyyaml</exec_depend>
   <exec_depend>python3-sklearn</exec_depend>
   <exec_depend>python3-enum</exec_depend>
+  <exec_depend>python3-tqdm</exec_depend>
   
   <export>
   </export>
