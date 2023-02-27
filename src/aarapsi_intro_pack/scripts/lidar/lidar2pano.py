@@ -7,7 +7,7 @@ from sensor_msgs.msg import PointCloud2
 import numpy as np
 import math
 import cv2
-
+import sys
 import matplotlib.pyplot as plt
 
 class mrc:
@@ -26,84 +26,86 @@ class mrc:
         self.lidar_msg              = PointCloud2()
         self.new_lidar_msg          = False
 
-        # https://adioshun.gitbooks.io/pcl_snippet/content/3D-Point-cloud-to-2D-Panorama-view.html
-        self.SURROUND_U_STEP = 1.    #resolution
-        self.SURROUND_V_STEP = 1.33
-        self.SURROUND_U_MIN, self.SURROUND_U_MAX = np.array([0,    360])/self.SURROUND_U_STEP  # horizontal of cylindrial projection
-        self.SURROUND_V_MIN, self.SURROUND_V_MAX = np.array([-90,   90])/self.SURROUND_V_STEP  # vertical   of cylindrial projection
-
     def lidar_callback(self, msg):
         self.lidar_msg              = msg
         self.new_lidar_msg          = True
 
-    def lidar_to_surround_coords(self, x, y, z, d ):
-        # https://adioshun.gitbooks.io/pcl_snippet/content/3D-Point-cloud-to-2D-Panorama-view.html
-        u =   np.arctan2(x, y)/np.pi*180 /self.SURROUND_U_STEP
-        v = - np.arctan2(z, d)/np.pi*180 /self.SURROUND_V_STEP
-        u = (u +90)%360  ##<todo> car will be spit into 2 at boundary  ...
-
-        u = np.rint(u)
-        v = np.rint(v)
-        u = (u - self.SURROUND_U_MIN).astype(np.uint8)
-        v = (v - self.SURROUND_V_MIN).astype(np.uint8)
-
-        return u,v
-
-
-    def main_loop(self, imshow_handle):
-        def normalise_to_255(a):
-            return (((a - min(a)) / float(max(a) - min(a))) * 255).astype(np.uint8)
+    def main_loop(self, imsh, tdva, plra, pix_x, pix_y):
 
         if not self.new_lidar_msg:
             return
+
+        # Hacked for ROS + our LiDAR from:
+        # https://adioshun.gitbooks.io/pcl_snippet/content/3D-Point-cloud-to-2D-Panorama-view.html
+        def normalise_to_255(a):
+            return (((a - min(a)) / float(max(a) - min(a))) * 255).astype(np.uint8)
+
+        def lidar_to_surround_coords(x, y, z, d ):
+            u =   np.arctan2(x, y) *(180/np.pi)
+            v = - np.arctan2(z, d) *(180/np.pi)
+            u = (u +90)%360  ##<todo> car will be spit into 2 at boundary  ...
+
+            u = np.rint(u).astype(int)
+            v = np.rint(v-min(v)).astype(int)
+
+            return u,v
         
         pc_xyzi = np.array(list(point_cloud2.read_points(self.lidar_msg, skip_nans=True, field_names=("x", "y", "z", "intensity"))))#, "ring", "time"
-        #d = np.sqrt(pc_xyzi[:,0]**2 + pc_xyzi[:,1]**2) # distance relative to origin ignoring 'z'
-        #t = np.arctan2(pc_xyzi[:,1], pc_xyzi[:,0])
-
-        # plt.sca(axes)
-        # plt.cla()
-        # axes.plot(t, pc_xyzi[:,2])
-        # axes.set(xlabel='Angle (rad)', ylabel='Z-Axis')
-        
-        # https://adioshun.gitbooks.io/pcl_snippet/content/3D-Point-cloud-to-2D-Panorama-view.html
-        x = pc_xyzi[:,0]
-        y = pc_xyzi[:,1]
-        z = pc_xyzi[:,2]
-        r = pc_xyzi[:,3]
+        pc_xyzi = np.delete(pc_xyzi, np.arange(pc_xyzi.shape[0])[pc_xyzi[:,2] < -0.5], 1)
+        x = np.array(pc_xyzi[:,0])
+        y = np.array(pc_xyzi[:,1])
+        z = np.array(pc_xyzi[:,2])
+        r = np.array(pc_xyzi[:,3]) # intensity, reflectance
 
         d = np.sqrt(x ** 2 + y ** 2)  # map distance relative to origin
-        u,v = self.lidar_to_surround_coords(x,y,z,d)
+        u,v = lidar_to_surround_coords(x,y,z,d)
 
-        width  = int(self.SURROUND_U_MAX - self.SURROUND_U_MIN + 1)
-        height = int(self.SURROUND_V_MAX - self.SURROUND_V_MIN + 1)
-        surround     = np.zeros((height, width, 3), dtype=np.float32)
-        surround_img = np.zeros((height, width, 3), dtype=np.uint8)
+        width                   = 361
+        height                  = 31
+        panorama                = np.zeros((height, width, 3), dtype=np.uint8)
+        panorama[v, u, 1]       = normalise_to_255(d)
+        panorama[v, u, 2]       = normalise_to_255(z)
+        panorama[v, u, 0]       = normalise_to_255(r)
 
-        surround[v, u, 0] = d
-        surround[v, u, 1] = z
-        surround[v, u, 2] = r
-        surround_img[v, u, 0] = normalise_to_255(np.clip(d,     0, 30))
-        surround_img[v, u, 1] = normalise_to_255(np.clip(z+1.8, 0, 100))
-        surround_img[v, u, 2] = normalise_to_255(np.clip(r,     0, 30))
+        image = cv2.resize(panorama[::2], (pix_x, pix_y), interpolation = cv2.INTER_AREA)
+        imsh.set_data(image)
+        tdva.cla()
+        tdva.scatter(x, y, c=z)
+        tdva.set_aspect('equal')
+        tdva.set_xlim(-15, 15)
+        tdva.set_ylim(-15, 15)
 
-        surround_img_resized = cv2.resize(surround, (100, 400), interpolation = cv2.INTER_AREA)
-        imshow_handle.set_data(surround_img_resized)
-        #imshow_handle.autoscale()
-        
-        
+        # https://kaleidoscopicdiaries.wordpress.com/2015/05/16/planet-panoramas-in-python/
+        panorama_ud = np.flipud(panorama).astype(int)
+        rr = np.linspace(0.01, 1, panorama_ud.shape[0])
+        th = np.linspace(0, 2*np.pi, panorama_ud.shape[1])
+        Rr, Th = np.meshgrid(rr, th)
+        pano_ud_trans = np.transpose(-panorama_ud)
+        plra.cla()
+        plra.pcolor(Th, Rr, pano_ud_trans)
 
 if __name__ == '__main__':
     try:
         nmrc = mrc()
 
-        fig, axes = plt.subplots(1, 1, figsize=(15,4))
-        imshow_handle = axes.imshow(np.zeros((100,400,3)))
+        fig, axes = plt.subplots(2, 2, figsize=(15,8))
+        # https://matplotlib.org/stable/gallery/subplots_axes_and_figures/gridspec_and_subplots.html
+        gs = axes[0, 0].get_gridspec()
+        for ax in axes[0,:]:
+            print(ax)
+            ax.remove()
+        axbig = fig.add_subplot(gs[0,:])
+        pix_x = 361
+        pix_y = 91
+
+        image = np.zeros((pix_y, pix_x, 3))
+        imsh = axbig.imshow(image, cmap='gist_rainbow', vmin=0, vmax=1)
+        
         fig.show()
 
         while not rospy.is_shutdown():
             nmrc.rate_obj.sleep()
-            nmrc.main_loop(imshow_handle)
+            nmrc.main_loop(imsh, axes[1,0], axes[1,1], pix_x, pix_y)
             fig.canvas.draw()
             
         rospy.loginfo("Exit state reached.")
