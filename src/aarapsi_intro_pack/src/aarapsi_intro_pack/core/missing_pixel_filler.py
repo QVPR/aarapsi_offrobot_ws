@@ -5,13 +5,13 @@
 import math
 import random 
 import numpy as np
-from aarapsi_intro_pack.core.helper_tools import Timer
 import torch
 
 if torch.cuda.is_available():
     device = torch.device("cuda")
 else:
     device = torch.device("cpu")
+
 torch.backends.cudnn.benchmark = True
 
 # input: img (np array)
@@ -109,21 +109,17 @@ def fill_swath_with_neighboring_pixel(img, startsize=10, stepsize=10):
 # input: img (np array)
 # output: img (np array with corrected pixels using nearest neighbours)
 def fill_swath_fast(img_in):
-  timer = Timer()
   img = img_in.copy()
   img_t = torch.from_numpy(img).to(device)
 
   img_h_t, img_w_t, _ = img_t.shape
 
-  indices   = torch.nonzero(torch.sum(img_t,2) == 0)
-  y_swath_t = indices[:, 0]
-  x_swath_t = indices[:, 1]
   flatind_t = torch.nonzero(torch.sum(img_t,2).flatten()==0).flatten()
+  y_swath_t = torch.floor(flatind_t / img_w_t).to(torch.long)
+  x_swath_t = flatind_t % img_w_t
 
-  u_t       = torch.arange(img_w_t).repeat(img_h_t)
-  v_t       = torch.transpose(torch.arange(img_w_t).repeat(img_h_t,1),0,1).flatten()
-
-  timer.add()
+  u_t       = torch.arange(img_w_t).repeat(img_h_t).to(device)
+  v_t       = torch.transpose(torch.arange(img_h_t).repeat(img_w_t,1),0,1).flatten().to(device)
 
   va_t  = torch.sub(u_t[:, None], x_swath_t)
   vb_t  = torch.sub(v_t[:, None], y_swath_t)
@@ -131,26 +127,13 @@ def fill_swath_fast(img_in):
   vbs_t = torch.pow(vb_t, 2)
   vec_t = torch.add(vas_t, vbs_t)
 
-  timer.add()
-
   vec_t[flatind_t] = torch.max(vec_t, dim=0)[0] # return 0th list (max values only, we don't care for indices)
 
-  timer.add()
-
   closest_points_t = torch.argmin(vec_t, dim=0)
-
-  timer.add()
-
   x_indices_t = closest_points_t % img_w_t
   y_indices_t = torch.floor(closest_points_t / img_w_t).to(torch.long)
   img_t[y_swath_t, x_swath_t] = img_t[y_indices_t, x_indices_t]
-
-  timer.add()
   
   img_out = img_t.cpu().numpy()
 
-  timer.add()
-  timer.add()
-  timer.addb()
-  timer.show(name="mpf")
   return img_out

@@ -13,7 +13,7 @@ import matplotlib
 matplotlib.use("Qt5agg")
 from matplotlib import pyplot as plt
 from sensor_msgs.msg import CompressedImage
-from aarapsi_intro_pack.core.missing_pixel_filler import fill_swath_fast
+from aarapsi_intro_pack.core.missing_pixel_filler import fill_swath_fast,fill_swath_with_neighboring_pixel 
 from aarapsi_intro_pack.core.helper_tools import Timer
 import time
 
@@ -52,7 +52,9 @@ class mrc:
         self.new_lidar_msg  = True
 
     def main_loop(self, lidar_h, sight_h, tdva, lidar_plr_h, sight_plr_h, pix_x, pix_y, pix_s):
+
         timer = Timer()
+        timer.add()
         if not self.new_lidar_msg and not all(self.new_imgs):
             return
         
@@ -100,9 +102,13 @@ class mrc:
             
             return panorama
                 
-        def surround_coords_to_polar_coords(u, v, pix_s):
+        def surround_coords_to_polar_coords(u, v, pix_s, mode='linear'):
+            LinTerm = ((pix_s-1)/ 2) - (((v - min(v)) / (max(v) - min(v))) * ((pix_s-1)/ 2))
+            if mode == 'linear':
+                R = LinTerm
+            elif mode == 'log10':
+                R = LinTerm * np.log10(R + 1) * pix_s / np.log10(pix_s + 1)
 
-            R = ((pix_s-1)/ 2) - (((v - min(v)) / (max(v) - min(v))) * ((pix_s-1)/ 2))
             t = (((u - min(u)) / (max(u) - min(u))) * (np.pi * 2)) + (np.pi/2)
 
             px = ((pix_s-1)/ 2) + (np.cos(t) * R)
@@ -113,16 +119,16 @@ class mrc:
 
             return px, py
         
-        def surround_to_polar_coords(surround, pix_s):
+        def surround_to_polar_coords(surround, pix_s, mode='linear'):
             u = np.repeat([np.arange(surround.shape[1])],surround.shape[0],0).flatten()
             v = np.repeat(np.arange(surround.shape[0]),surround.shape[1],0)
 
-            px, py = surround_coords_to_polar_coords(u, v, pix_s)
+            px, py = surround_coords_to_polar_coords(u, v, pix_s, mode='linear')
 
             return px, py, u, v
         
-        def surround_to_polar_img(surround, pix_s):
-            px,py,su,sv             = surround_to_polar_coords(surround, pix_s)
+        def surround_to_polar_img(surround, pix_s, mode='linear'):
+            px,py,su,sv             = surround_to_polar_coords(surround, pix_s, mode='linear')
             polarimg                = np.zeros((pix_s, pix_s, 3), dtype=np.uint8)
             polarimg[py, px, :]     = surround[sv, su, :]
             return polarimg
@@ -135,25 +141,34 @@ class mrc:
         r = np.array(pc_xyzi[:,3]) # intensity, reflectance
 
         lidar_pano = lidar_to_surround_img(x, y, z, r, pix_x, pix_y)
-        timer.add()
         lidar_pano_clean = fill_swath_fast(lidar_pano)
-        timer.add()
-        lidar_pano_resize = cv2.resize(lidar_pano, (pix_x, pix_y), interpolation = cv2.INTER_AREA)
-        lidar_pano_clean_resize = cv2.resize(lidar_pano_clean, (pix_x, pix_y), interpolation = cv2.INTER_AREA)
+        lidar_pano_resize = cv2.resize(lidar_pano_clean, (pix_x, pix_y), interpolation = cv2.INTER_AREA)
 
-        lidar_plr_img = surround_to_polar_img(lidar_pano_resize, pix_s)
-        lidar_plr_clean_img = surround_to_polar_img(lidar_pano_clean_resize, pix_s)
+        lidar_plr_img = surround_to_polar_img(lidar_pano_resize, pix_s, mode='log10')
+
+        x0, y0 = np.where(np.sum(lidar_plr_img,2)==0)
+        lidar_plr_img[x0,y0,:] = [255,255,255]
+
+        #lidar_plr_img_clean = fill_swath_fast(lidar_plr_img)
 
         lidar_h.set_data(lidar_pano_resize)
-        sight_h.set_data(lidar_pano_clean_resize)
+        #sight_h.set_data()
+
         lidar_plr_h.set_data(lidar_plr_img)
-        sight_plr_h.set_data(lidar_plr_clean_img)
+        #sight_plr_h.set_data()
 
         tdva.cla()
         tdva.scatter(x, y, c=z)
         tdva.set_aspect('equal')
         tdva.set_xlim(-15, 15)
         tdva.set_ylim(-15, 15)
+
+        timer.add()
+        fig.canvas.draw()
+        plt.pause(0.0001)
+
+        timer.add()
+        timer.addb()
         timer.show("main_loop")
 
 if __name__ == '__main__':
@@ -170,12 +185,13 @@ if __name__ == '__main__':
         ax_mid = fig.add_subplot(gs_mid[1,:])
         pix_x = 800
         pix_y = 90
-        pix_s = 64
+        pix_s = 128
 
         image1 = np.zeros((pix_y, pix_x, 3))
-        image2 = np.zeros((pix_s, pix_s, 3))
         lidar_h = ax_top.imshow(image1, cmap='gist_rainbow', vmin=0, vmax=1)
         sight_h = ax_mid.imshow(image1, cmap='gist_rainbow', vmin=0, vmax=1)
+
+        image2 = np.zeros((pix_s, pix_s, 3))
         lidar_plr_h = axes[2,1].imshow(image2, cmap='gist_rainbow', vmin=0, vmax=1)
         sight_plr_h = axes[2,2].imshow(image2, cmap='gist_rainbow', vmin=0, vmax=1)
         
@@ -183,13 +199,8 @@ if __name__ == '__main__':
         timer = Timer()
         while not rospy.is_shutdown():
             nmrc.rate_obj.sleep()
-            timer.add()
             nmrc.main_loop(lidar_h, sight_h, axes[2,0], lidar_plr_h, sight_plr_h, pix_x, pix_y, pix_s)
-            timer.add()
-            fig.canvas.draw()
-            plt.pause(0.0001)
-            timer.add()
-            timer.show("outer")
+
             
         rospy.loginfo("Exit state reached.")
     except rospy.ROSInterruptException:
