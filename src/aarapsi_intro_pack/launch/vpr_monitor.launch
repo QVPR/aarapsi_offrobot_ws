@@ -1,9 +1,8 @@
 <launch>
-    <arg name="ref_dataset_name" default="ccw_zeroed_20230208"/>
-    <arg name="cal_dataset_name" default="cw_zeroed_20230208"/>
+    <arg name="ref_dataset_name" default="s1_ccw_z_230208_o0_e0_32"/>
+    <arg name="cal_qry_dataset_name" default="s1_cw_z_230208_o0_e0_32"/>
+    <arg name="cal_ref_dataset_name" default="s2_cw_z_230222_o0_e1_32"/>
 
-    <arg name="query_feed" default="forward"/>
-    <arg name="odometry_folder" default="odo"/>
     <arg name="rate" default="20.0"/>
     <arg name="node_name" default="vpr_monitor"/>
     <arg name="anon" default="True"/>
@@ -31,7 +30,7 @@
     <arg name="frame_id" default="base_link"/>
     
     <node pkg="aarapsi_intro_pack" type="vpr_monitor.py" name="$(arg node_name)" output="screen" 
-        args="$(arg ref_dataset_name) $(arg cal_dataset_name) $(arg database_path)
+        args="$(arg ref_dataset_name) $(arg cal_qry_dataset_name) $(arg cal_ref_dataset_name) $(arg database_path)
               $(arg image_topic_in) $(arg odometry_topic_in) 
               -Ci $(arg compress_in) -Co $(arg compress_out) -P $(arg do_plotting) -I $(arg make_images) -G $(arg groundtruth) -L $(arg make_labels)
               -r $(arg rate) -l $(arg time_history_length) -i $(arg img_dims) -F $(arg ft_type) 

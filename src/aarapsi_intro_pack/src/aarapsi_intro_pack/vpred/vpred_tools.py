@@ -2,25 +2,24 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial.distance import cdist
 
-def create_similarity_vector(reference_feature_vector,query_features):
-    # query features must be a 2-D vector: np.array([[X,X...]])
-    # reference features must be a 2D array
-    similarity_vector = cdist(reference_feature_vector,query_features,'euclidean')
-    return similarity_vector
+def create_similarity_matrix(ref_arr, qry_arr):
+    # Arrays (ref_arr, qry_arr) must be a 2D, consisting of feature vectors: np.array([[X,X...],[X,X...]]) but may contain only one vector: np.array([[X,X...]])
+    # norm should contain an input that can return a mean and std using norm.mean() and norm.std() methods
+    mat = cdist(ref_arr, qry_arr, 'euclidean')
+    return mat
+    
 
-def create_similarity_matrix(reference_feature_vector,query_feature_vector):
-    # query features must be a 2D array of feature vectors: np.array([[X,X...],[X,X...]])
-    # reference features must be a 2D array of feature vectors
-    similarity_matrix = cdist(reference_feature_vector,query_feature_vector,'euclidean')
-    return similarity_matrix
+def create_normalised_similarity_matrix(ref_arr, qry_arr):
+    # Arrays must be a 2D, consisting of feature vectors: np.array([[X,X...],[X,X...]]) but may contain only one vector: np.array([[X,X...]])
+    Sref    = cdist(ref_arr, ref_arr, 'euclidean')
+    S       = cdist(ref_arr, qry_arr, 'euclidean')
 
-def create_normalised_similarity_matrix(reference_feature_vector,query_feature_vector):
-    # query features must be a 2D array of feature vectors: np.array([[X,X...],[X,X...]])
-    # reference features must be a 2D array of feature vectors
-    Sref = cdist(reference_feature_vector,reference_feature_vector,'euclidean')
-    S = cdist(reference_feature_vector,query_feature_vector,'euclidean')
-    Snorm = (S - Sref.mean())/Sref.std()
-    return Snorm, Sref.mean(), Sref.std()
+    # Normalise S:
+    refmean = Sref.mean()
+    refstd  = Sref.std()
+    Snorm   = ( S - refmean ) / refstd
+
+    return Snorm, refmean, refstd
 
 def find_best_match(similarity_matrix):
     # works for similarity vectors as well as matrices
