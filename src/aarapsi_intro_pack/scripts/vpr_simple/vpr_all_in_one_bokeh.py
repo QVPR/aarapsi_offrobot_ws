@@ -375,7 +375,6 @@ def ros_spin(nmrc):
     
     nmrc.rate_obj.sleep()
     main_loop(nmrc)
-    rospy.loginfo("..")
 
     if rospy.is_shutdown():
         global server
