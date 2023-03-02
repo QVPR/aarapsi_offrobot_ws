@@ -117,7 +117,7 @@ class mrc: # main ROS class
         self.image_processor        = VPRImageProcessor()
         self.ref_dict               = self.image_processor.npzDatabaseLoadSave(self.DATABASE_PATH, self.REF_DATA_NAME, \
                                                                                 self.REF_IMG_PATH, self.REF_ODOM_PATH, \
-                                                                                self.FEAT_TYPE, self.IMG_DIMS, do_save=True)
+                                                                                self.FEAT_TYPE, self.IMG_DIMS, do_save=False)
         self.img_folder             = 'forward'
 
         if self.DO_PLOTTING:
@@ -236,6 +236,7 @@ def main_loop(nmrc):
 
     if nmrc.do_show and nmrc.DO_PLOTTING: # set by timer callback and node input
         nmrc.fig.canvas.draw() # update all fig subplots
+        plt.pause(0.001)
         nmrc.do_show = False # clear flag
 
     if not (nmrc.new_query and (nmrc.new_odom or not nmrc.MAKE_LABEL) and nmrc.main_ready): # denest
