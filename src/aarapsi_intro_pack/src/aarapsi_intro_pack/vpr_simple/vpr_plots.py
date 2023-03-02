@@ -140,7 +140,7 @@ def doDVecFigBokeh(nmrc, odom_in):
 
     fig_dvec    = figure(title="Distance Vector", width=500, height=500, \
                          x_axis_label = 'Index', y_axis_label = 'Distance', \
-                         x_range = (0, len(odom_in['position']['x'])), y_range = (0, 10000))
+                         x_range = (0, len(odom_in['position']['x'])), y_range = (0, 1.1))
     
     dvc_plotted = fig_dvec.line([], [], color="black", legend_label="Image Distances") # distance vector
     mat_plotted = fig_dvec.circle([], [], color="red", size=7, legend_label="Selected") # matched image (lowest distance)
@@ -151,10 +151,10 @@ def doDVecFigBokeh(nmrc, odom_in):
 def updateDVecFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
 # Update DVec figure with new data (match->mInd, true->tInd)
 # Use old handles (mat, tru) and crunched distance vector (dvc)
-
-    nmrc.fig_dvec_handles['dvc'].data_source.data = {'x': list(range(len(dvc-1))), 'y': dvc}
-    nmrc.fig_dvec_handles['mat'].data_source.data = {'x': [mInd], 'y': [dvc[mInd][0]]}
-    nmrc.fig_dvec_handles['tru'].data_source.data = {'x': [tInd], 'y': [dvc[tInd][0]]}
+    max_val = max(dvc[:])
+    nmrc.fig_dvec_handles['dvc'].data_source.data = {'x': list(range(len(dvc-1))), 'y': dvc/max_val}
+    nmrc.fig_dvec_handles['mat'].data_source.data = {'x': [mInd], 'y': [dvc[mInd]/max_val]}
+    nmrc.fig_dvec_handles['tru'].data_source.data = {'x': [tInd], 'y': [dvc[tInd]/max_val]}
 
 ##################################################################
 #### Odometry Figure: do and update
