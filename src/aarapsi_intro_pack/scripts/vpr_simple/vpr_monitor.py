@@ -247,43 +247,46 @@ def main_loop(nmrc):
         else:
             rospy.logerr('integrity prediction: %r [gt: %r]' % (y_pred_rt, gt_state_bool))
 
+def do_args():
+    parser = ap.ArgumentParser(prog="vpr_monitor", 
+                                description="ROS implementation of Helen Carson's Integrity Monitor, for integration with QVPR's VPR Primer",
+                                epilog="Maintainer: Owen Claxton (claxtono@qut.edu.au)")
+    
+    # Positional Arguments:
+    parser.add_argument('ref-dataset-name', help='Specify name of reference dataset (for fast loading; matches are made on names starting with provided string).')
+    parser.add_argument('cal-qry-dataset-name', help='Specify name of calibration query dataset (for fast loading; matches are made on names starting with provided string).')
+    parser.add_argument('cal-ref-dataset-name', help='Specify name of calibration reference dataset (for fast loading; matches are made on names starting with provided string).')
+    parser.add_argument('database-path', help="Specify path to where compressed databases exist (for fast loading).")
+    parser.add_argument('image-topic-in', help="Specify input image topic (exclude /compressed).")
+    parser.add_argument('odometry-topic-in', help="Specify input odometry topic (exclude /compressed).")
+
+    # Optional Arguments:
+    parser.add_argument('--compress-in', '-Ci', type=check_bool, default=False, help='Enable image compression on input (default: %(default)s)')
+    parser.add_argument('--compress-out', '-Co', type=check_bool, default=False, help='Enable image compression on output (default: %(default)s)')
+    parser.add_argument('--rate', '-r', type=check_positive_float, default=10.0, help='Set node rate (default: %(default)s).')
+    parser.add_argument('--time-history-length', '-l', type=check_positive_int, default=10, help='Set keep history size for logging true rate (default: %(default)s).')
+    parser.add_argument('--img-dims', '-i', type=check_positive_two_int_tuple, default=(64,64), help='Set image dimensions (default: %(default)s).')
+    ft_options, ft_options_text = enum_value_options(FeatureType, skip=FeatureType.NONE)
+    parser.add_argument('--ft-type', '-F', type=int, choices=ft_options, default=ft_options[0], \
+                        help='Choose feature type for extraction, types: %s (default: %s).' % (ft_options_text, '%(default)s'))
+    tolmode_options, tolmode_options_text = enum_value_options(Tolerance_Mode)
+    parser.add_argument('--tol-mode', '-t', type=int, choices=tolmode_options, default=tolmode_options[0], \
+                        help='Choose tolerance mode for ground truth, types: %s (default: %s).' % (tolmode_options_text, '%(default)s'))
+    parser.add_argument('--tol-thresh', '-T', type=check_positive_float, default=1.0, help='Set tolerance threshold for ground truth (default: %(default)s).')
+    parser.add_argument('--icon-info', '-p', dest='(size, distance)', type=check_positive_two_int_tuple, default=(50,20), help='Set icon (size, distance) (default: %(default)s).')
+    parser.add_argument('--node-name', '-N', default="vpr_all_in_one", help="Specify node name (default: %(default)s).")
+    parser.add_argument('--anon', '-a', type=check_bool, default=True, help="Specify whether node should be anonymous (default: %(default)s).")
+    parser.add_argument('--namespace', '-n', default="/vpr_nodes", help="Specify namespace for topics (default: %(default)s).")
+    parser.add_argument('--frame-id', '-f', default="base_link", help="Specify frame_id for messages (default: %(default)s).")
+
+
+    # Parse args...
+    raw_args = parser.parse_known_args()
+    return vars(raw_args[0])
+
 if __name__ == '__main__':
     try:
-        parser = ap.ArgumentParser(prog="vpr_monitor", 
-                                   description="ROS implementation of Helen Carson's Integrity Monitor, for integration with QVPR's VPR Primer",
-                                   epilog="Maintainer: Owen Claxton (claxtono@qut.edu.au)")
-        
-        # Positional Arguments:
-        parser.add_argument('ref-dataset-name', help='Specify name of reference dataset (for fast loading; matches are made on names starting with provided string).')
-        parser.add_argument('cal-qry-dataset-name', help='Specify name of calibration query dataset (for fast loading; matches are made on names starting with provided string).')
-        parser.add_argument('cal-ref-dataset-name', help='Specify name of calibration reference dataset (for fast loading; matches are made on names starting with provided string).')
-        parser.add_argument('database-path', help="Specify path to where compressed databases exist (for fast loading).")
-        parser.add_argument('image-topic-in', help="Specify input image topic (exclude /compressed).")
-        parser.add_argument('odometry-topic-in', help="Specify input odometry topic (exclude /compressed).")
-
-        # Optional Arguments:
-        parser.add_argument('--compress-in', '-Ci', type=check_bool, default=False, help='Enable image compression on input (default: %(default)s)')
-        parser.add_argument('--compress-out', '-Co', type=check_bool, default=False, help='Enable image compression on output (default: %(default)s)')
-        parser.add_argument('--rate', '-r', type=check_positive_float, default=10.0, help='Set node rate (default: %(default)s).')
-        parser.add_argument('--time-history-length', '-l', type=check_positive_int, default=10, help='Set keep history size for logging true rate (default: %(default)s).')
-        parser.add_argument('--img-dims', '-i', type=check_positive_two_int_tuple, default=(64,64), help='Set image dimensions (default: %(default)s).')
-        ft_options, ft_options_text = enum_value_options(FeatureType, skip=FeatureType.NONE)
-        parser.add_argument('--ft-type', '-F', type=int, choices=ft_options, default=ft_options[0], \
-                            help='Choose feature type for extraction, types: %s (default: %s).' % (ft_options_text, '%(default)s'))
-        tolmode_options, tolmode_options_text = enum_value_options(Tolerance_Mode)
-        parser.add_argument('--tol-mode', '-t', type=int, choices=tolmode_options, default=tolmode_options[0], \
-                            help='Choose tolerance mode for ground truth, types: %s (default: %s).' % (tolmode_options_text, '%(default)s'))
-        parser.add_argument('--tol-thresh', '-T', type=check_positive_float, default=1.0, help='Set tolerance threshold for ground truth (default: %(default)s).')
-        parser.add_argument('--icon-info', '-p', dest='(size, distance)', type=check_positive_two_int_tuple, default=(50,20), help='Set icon (size, distance) (default: %(default)s).')
-        parser.add_argument('--node-name', '-N', default="vpr_all_in_one", help="Specify node name (default: %(default)s).")
-        parser.add_argument('--anon', '-a', type=check_bool, default=True, help="Specify whether node should be anonymous (default: %(default)s).")
-        parser.add_argument('--namespace', '-n', default="/vpr_nodes", help="Specify namespace for topics (default: %(default)s).")
-        parser.add_argument('--frame-id', '-f', default="base_link", help="Specify frame_id for messages (default: %(default)s).")
-
-
-        # Parse args...
-        raw_args = parser.parse_known_args()
-        args = vars(raw_args[0])
+        args = do_args()
 
         # Hand to class ...
         nmrc = mrc(args['ref-dataset-name'], args['cal-qry-dataset-name'], args['cal-ref-dataset-name'], args['database-path'], args['image-topic-in'], args['odometry-topic-in'], \

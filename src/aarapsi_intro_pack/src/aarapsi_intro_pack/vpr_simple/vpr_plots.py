@@ -1,7 +1,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
-from bokeh.models import Range1d, ColumnDataSource
-from bokeh.plotting import figure, show
+from bokeh.plotting import figure
+import cv2
 
 #   _____       _____  _       _   
 #  |  __ \     |  __ \| |     | |  
@@ -104,33 +104,6 @@ def updateOdomFig(mInd, tInd, dvc, odom_in, fig_handles):
 #  |  _ < / _ \| |/ / _ \ '_ \ 
 #  | |_) | (_) |   <  __/ | | |
 #  |____/ \___/|_|\_\___|_| |_|
-
-##################################################################
-#### Sliding Similarity Matrix Figure: do and update
-
-def doMtrxFigBokeh(nmrc, odom_in):
-# https://docs.bokeh.org/en/2.4.3/docs/gallery/image.html
-    fig_mtrx = figure(title="Similarity Matrix", width=500, height=500, \
-                      x_axis_label='Query Frame', y_axis_label='Reference Frame')
-    
-    img_mat = np.zeros((len(odom_in['position']['x']), len(odom_in['position']['x'])))
-
-    fig_mtrx.x_range.range_padding = 0
-    fig_mtrx.y_range.range_padding = 0
-    fig_mtrx.grid.grid_line_width = 0.5
-
-    # must give a vector of image data for image parameter
-    img_plotted = fig_mtrx.image(image=[img_mat], x=0, y=0, dw=10, dh=10, palette="Viridis256")
-
-    return {'fig': fig_mtrx, 'mtrx': img_mat, 'handle': img_plotted, 'size': len(odom_in['position']['x'])**2}
-
-def updateMtrxFigBokeh(nmrc, matchInd, trueInd, dvc, odom_in):
-    
-    nmrc.fig_mtrx_handles['mtrx'] = np.delete(nmrc.fig_mtrx_handles['mtrx'], 0, 1) # delete first column (oldest query)
-    nmrc.fig_mtrx_handles['mtrx'] = np.concatenate((nmrc.fig_mtrx_handles['mtrx'], np.array(np.flipud(dvc))), 1)
-    nmrc.fig_mtrx_handles['handle'].data_source.data = {'image': [nmrc.fig_mtrx_handles['mtrx']]}
-
-    #print(nmrc.fig_mtrx_handles['handle'].data_source.data['image'][0].shape)
     
 ##################################################################
 #### Distance Vector Figure: do and update
@@ -138,13 +111,18 @@ def updateMtrxFigBokeh(nmrc, matchInd, trueInd, dvc, odom_in):
 def doDVecFigBokeh(nmrc, odom_in):
 # Set up distance vector figure
 
-    fig_dvec    = figure(title="Distance Vector", width=500, height=500, \
+    fig_dvec    = figure(title="Distance Vector", width=500, height=250, \
                          x_axis_label = 'Index', y_axis_label = 'Distance', \
-                         x_range = (0, len(odom_in['position']['x'])), y_range = (0, 1.1))
+                         x_range = (0, len(odom_in['position']['x'])), y_range = (0, 1.2))
     
-    dvc_plotted = fig_dvec.line([], [], color="black", legend_label="Image Distances") # distance vector
+    dvc_plotted = fig_dvec.line([], [], color="black", legend_label="Distances") # distance vector
     mat_plotted = fig_dvec.circle([], [], color="red", size=7, legend_label="Selected") # matched image (lowest distance)
     tru_plotted = fig_dvec.circle([], [], color="magenta", size=7, legend_label="True") # true image (correct match)
+
+    fig_dvec.legend.location= (100, 140)
+    fig_dvec.legend.orientation='horizontal'
+    fig_dvec.legend.border_line_alpha=0
+    fig_dvec.legend.background_fill_alpha=0
 
     return {'fig': fig_dvec, 'dvc': dvc_plotted, 'mat': mat_plotted, 'tru': tru_plotted}
 
@@ -161,14 +139,18 @@ def updateDVecFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
 
 def doOdomFigBokeh(nmrc, odom_in):
 # Set up odometry figure
-    fig_odom            = figure(title="Odometries", width=500, height=500, \
+    fig_odom            = figure(title="Odometries", width=500, height=250, \
                                  x_axis_label = 'X-Axis', y_axis_label = 'Y-Axis', \
                                  match_aspect = True, aspect_ratio = "auto")
     
     ref_plotted    = fig_odom.line(   x=odom_in['position']['x'], y=odom_in['position']['y'], color="blue",   legend_label="Reference")
-    mat_plotted    = fig_odom.cross(  x=[], y=[], color="red",    legend_label="Match", size=6)
-    tru_plotted    = fig_odom.x(      x=[], y=[], color="green",  legend_label="True", size=4)
+    mat_plotted    = fig_odom.cross(  x=[], y=[], color="red",    legend_label="Match", size=12)
+    tru_plotted    = fig_odom.x(      x=[], y=[], color="green",  legend_label="True", size=8)
 
+    fig_odom.legend.location= (100, 70)
+    fig_odom.legend.orientation='horizontal'
+    fig_odom.legend.border_line_alpha=0
+    fig_odom.legend.background_fill_alpha=0
 
     return {'fig': fig_odom, 'ref': ref_plotted, 'mat': mat_plotted, 'tru': tru_plotted}
 
