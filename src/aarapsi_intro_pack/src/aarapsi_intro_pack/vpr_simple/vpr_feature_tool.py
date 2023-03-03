@@ -191,7 +191,10 @@ class VPRImageProcessor: # main ROS class
             separator = "/"
         ext_mode = ""
         # gemerate new full path to save to:
-        full_file_path = database_path + separator + filename + "_" + str(self.IMG_DIMS[1]) + ".npz"
+        filename_extended = database_path + separator + filename + "_%d" % (self.IMG_DIMS[0])
+        if not (self.IMG_DIMS[0] == self.IMG_DIMS[1]):
+            filename_extended = filename_extended + "_%d" % (self.IMG_DIMS[1])
+        full_file_path = filename_extended + ".npz"
         # perform save to compressed numpy file:
         try:
             self.print("[save2npz] Saving data as '%s'." % (full_file_path), State.INFO)
@@ -223,25 +226,31 @@ class VPRImageProcessor: # main ROS class
         if not file_found:
             raise Exception("[_npzLoader] No file found starting with %s in directory '%s'" % (filename, database_path))
 
-        # update class attributes:
-        self.IMG_FEATS = data['img_feats'].item()
-        self.ODOM = data['odom'].item()
-        self.TIMES = data['times']
+        try:
+            self.print("[_npzLoader] Data Main Keys: %s" % (str(np.fromiter(data.keys(), (str, 20))).replace('\'', '').replace('\n', '').replace(' ', ', ')), State.DEBUG)
+            self.print("[_npzLoader] Data Image Keys: %s" % (str(np.fromiter(data['img_feats'].item().keys(), (str, 20))).replace('\'', '').replace('\n', '').replace(' ', ', ')), State.DEBUG)
+            self.print("[_npzLoader] Data Odom Keys: %s" % (str(np.fromiter(data['odom'].item().keys(), (str, 20))).replace('\'', '').replace('\n', '').replace(' ', ', ')), State.DEBUG)
+            # update class attributes:
+            self.IMG_FEATS = data['img_feats'].item()
+            self.ODOM = data['odom'].item()
+            self.TIMES = data['times']
 
-        self.ODOM_PATH = data['odom_path']
-        self.IMG_PATHS = data['image_paths']
+            self.ODOM_PATH = data['odom_path']
+            self.IMG_PATHS = data['image_paths']
 
-        self.FEAT_TYPE = data['feat_type']
-        self.IMG_DIMS = tuple(data['img_dims'])
+            self.FEAT_TYPE = data['feat_type'].item()
+            self.IMG_DIMS = tuple(data['img_dims'])
 
-        self.ODOM_LOADED = True
-        self.IMAGES_LOADED = True
+            self.ODOM_LOADED = True
+            self.IMAGES_LOADED = True
 
-        self.buildFullDictionary()
-        dict_keys = str(np.fromiter(self.SET_DICT.keys(), (str, 20))).replace('\'', '').replace('\n', '').replace(' ', ', ')
-        imgs_keys = str(np.fromiter(self.IMG_FEATS.keys(), (str, 20))).replace('\'', '').replace('\n', '').replace(' ', ', ')
-        odom_keys = str(np.fromiter(self.ODOM.keys(), (str, 20))).replace('\'', '').replace('\n', '').replace(' ', ', ')
-        return dict_keys, imgs_keys, odom_keys
+            self.buildFullDictionary()
+            dict_keys = str(np.fromiter(self.SET_DICT.keys(), (str, 20))).replace('\'', '').replace('\n', '').replace(' ', ', ')
+            imgs_keys = str(np.fromiter(self.IMG_FEATS.keys(), (str, 20))).replace('\'', '').replace('\n', '').replace(' ', ', ')
+            odom_keys = str(np.fromiter(self.ODOM.keys(), (str, 20))).replace('\'', '').replace('\n', '').replace(' ', ', ')
+            return dict_keys, imgs_keys, odom_keys
+        except Exception as e:
+            raise Exception("[_npzLoader] Error: %s" % (e))
 
     def npzLoader(self, database_path, filename):
     # Public method. Specify directory path containing .npz file (database_path) and the filename (or an incomplete but unique file prefix)
@@ -260,8 +269,12 @@ class VPRImageProcessor: # main ROS class
     # database_path, filename as per npzLoader.
     # img_paths, odom_path, feat_type, and img_dims as per loadFull
     # do_save=True enables saving for fast loading (with directory/filename specified by database_path and filename respectively)
+        
+        filename_extended = filename + "_%d" % (img_dims[0])
+        if not (self.IMG_DIMS[0] == self.IMG_DIMS[1]):
+            filename_extended = filename_extended + "_%d" % (img_dims[1])
 
-        if not self.npzLoader(database_path, filename + "_%d" % (img_dims[0])):
+        if not self.npzLoader(database_path, filename_extended):
             self.print("[npzDatabaseLoadSave] Fast load failed. Building normally.", State.WARN)
             self.SET_DICT = self.loadFull(img_paths, odom_path, feat_type, img_dims)
             if not len(self.SET_DICT):
@@ -273,7 +286,6 @@ class VPRImageProcessor: # main ROS class
 
         return self.SET_DICT
     
-
     def clearImageVariables(self):
         self.IMG_PATHS          = ""
         self.FEAT_TYPE          = FeatureType.NONE
@@ -351,34 +363,26 @@ class VPRImageProcessor: # main ROS class
 ### Example usage:
 
 # import rospkg
-# import matplotlib.pyplot as plt
 
 # PACKAGE_NAME    = 'aarapsi_intro_pack'
-# SET_NAME        = "s2_cw_z_230222_o0_e1"
+
 # FEAT_TYPE       = FeatureType.RAW # Feature Type
-# IMG_DIMS        = (64, 64)
-# REF_ROOT        = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/" + SET_NAME
-# REF_IMG_PATHS   = [REF_ROOT + "/forward", REF_ROOT + "/left", REF_ROOT + "/right", REF_ROOT + "/panorama"]
-# REF_ODOM_PATH   = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/" + SET_NAME + "/odometry.csv"
+# REF_ROOT        = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/"
 # DATABASE_PATH   = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/compressed_sets/"
 
-# test = VPRImageProcessor()
-# dicts = []
-# sizes = [8, 16, 32, 64, 400]
-# for i in sizes:
-#     dicts.append(test.npzDatabaseLoadSave(DATABASE_PATH, SET_NAME + "_%d" % (i), REF_IMG_PATHS, REF_ODOM_PATH, FEAT_TYPE, (i,i), do_save=True))
-# print((tuple(dicts[0]['img_dims']), (8,8)))
-# index = 4
-# img = np.reshape(np.array(dicts[index]['img_feats']['panorama'])[0,:],(sizes[index],-1))
-# plt.imshow(img)
-# plt.show()
+# SET_NAMES       = ['s1_ccw_nz_230208_o0_e0','s1_cw_z_230208_o0_e0',  's2_ccw_z_230222_o0_e1', \
+#                    's2_cw_z_230222_o0_e1',  's1_ccw_nz_230207_o0_e0','s1_ccw_z_230208_o0_e0', \
+#                    's2_ccw_z_230222_o0_e0', 's2_ccw_z_230222_o1_e0']
+# sizes           = [8, 16, 32, 64, 128, 400]
 
-# dict_single = test.npzDatabaseLoadSave(DATABASE_PATH, SET_NAME + "_%d" % (8), REF_IMG_PATHS, REF_ODOM_PATH, FEAT_TYPE, (8,8), do_save=True)
+# for SET_NAME in SET_NAMES:
+#     REF_IMG_PATHS   = [ REF_ROOT + SET_NAME + "/forward", \
+#                         REF_ROOT + SET_NAME + "/left", \
+#                         REF_ROOT + SET_NAME + "/right", \
+#                         REF_ROOT + SET_NAME + "/panorama"]
+#     REF_ODOM_PATH   = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/" + SET_NAME + "/odometry.csv"
 
-# print(type((dict_single['odom']['position']['x'])[0]))
-# print(type((dict_single['odom']['position']['y'])[0]))
-# print(type((dict_single['odom']['position']['yaw'])[0]))
-# print(type((dict_single['odom']['velocity']['x'])[0]))
-# print(type((dict_single['odom']['velocity']['y'])[0]))
-# print(type((dict_single['odom']['velocity']['yaw'])[0]))
-# print(type((dict_single['times'])[0]))
+#     for i in sizes:
+#         IMG_DIMS = (i, i)
+#         ip = VPRImageProcessor() # reinit just to clean house
+#         ip.npzDatabaseLoadSave(DATABASE_PATH, SET_NAME, REF_IMG_PATHS, REF_ODOM_PATH, FEAT_TYPE, IMG_DIMS, do_save=True)

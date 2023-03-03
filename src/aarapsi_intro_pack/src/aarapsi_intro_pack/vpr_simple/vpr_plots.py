@@ -1,5 +1,16 @@
 import numpy as np
 from matplotlib import pyplot as plt
+from bokeh.plotting import figure
+import cv2
+
+#   _____       _____  _       _   
+#  |  __ \     |  __ \| |     | |  
+#  | |__) |   _| |__) | | ___ | |_ 
+#  |  ___/ | | |  ___/| |/ _ \| __|
+#  | |   | |_| | |    | | (_) | |_ 
+#  |_|    \__, |_|    |_|\___/ \__|
+#          __/ |                   
+#         |___/                    
 
 ##################################################################
 #### Sliding Similarity Matrix Figure: do and update
@@ -86,3 +97,74 @@ def updateOdomFig(mInd, tInd, dvc, odom_in, fig_handles):
     # Append new value for "true" (what it should be from the robot odom)
     fig_handles['tru'].set_xdata(np.append(fig_handles['tru'].get_xdata()[start_ind:num_queries], odom_in['position']['x'][tInd]))
     fig_handles['tru'].set_ydata(np.append(fig_handles['tru'].get_ydata()[start_ind:num_queries], odom_in['position']['y'][tInd]))
+
+#   ____        _        _     
+#  |  _ \      | |      | |    
+#  | |_) | ___ | | _____| |__  
+#  |  _ < / _ \| |/ / _ \ '_ \ 
+#  | |_) | (_) |   <  __/ | | |
+#  |____/ \___/|_|\_\___|_| |_|
+    
+##################################################################
+#### Distance Vector Figure: do and update
+
+def doDVecFigBokeh(nmrc, odom_in):
+# Set up distance vector figure
+
+    fig_dvec    = figure(title="Distance Vector", width=500, height=250, \
+                         x_axis_label = 'Index', y_axis_label = 'Distance', \
+                         x_range = (0, len(odom_in['position']['x'])), y_range = (0, 1.2))
+    
+    dvc_plotted = fig_dvec.line([], [], color="black", legend_label="Distances") # distance vector
+    mat_plotted = fig_dvec.circle([], [], color="red", size=7, legend_label="Selected") # matched image (lowest distance)
+    tru_plotted = fig_dvec.circle([], [], color="magenta", size=7, legend_label="True") # true image (correct match)
+
+    fig_dvec.legend.location= (100, 140)
+    fig_dvec.legend.orientation='horizontal'
+    fig_dvec.legend.border_line_alpha=0
+    fig_dvec.legend.background_fill_alpha=0
+
+    return {'fig': fig_dvec, 'dvc': dvc_plotted, 'mat': mat_plotted, 'tru': tru_plotted}
+
+def updateDVecFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
+# Update DVec figure with new data (match->mInd, true->tInd)
+# Use old handles (mat, tru) and crunched distance vector (dvc)
+    max_val = max(dvc[:])
+    nmrc.fig_dvec_handles['dvc'].data_source.data = {'x': list(range(len(dvc-1))), 'y': dvc/max_val}
+    nmrc.fig_dvec_handles['mat'].data_source.data = {'x': [mInd], 'y': [dvc[mInd]/max_val]}
+    nmrc.fig_dvec_handles['tru'].data_source.data = {'x': [tInd], 'y': [dvc[tInd]/max_val]}
+
+##################################################################
+#### Odometry Figure: do and update
+
+def doOdomFigBokeh(nmrc, odom_in):
+# Set up odometry figure
+    fig_odom            = figure(title="Odometries", width=500, height=250, \
+                                 x_axis_label = 'X-Axis', y_axis_label = 'Y-Axis', \
+                                 match_aspect = True, aspect_ratio = "auto")
+    
+    ref_plotted    = fig_odom.line(   x=odom_in['position']['x'], y=odom_in['position']['y'], color="blue",   legend_label="Reference")
+    mat_plotted    = fig_odom.cross(  x=[], y=[], color="red",    legend_label="Match", size=12)
+    tru_plotted    = fig_odom.x(      x=[], y=[], color="green",  legend_label="True", size=8)
+
+    fig_odom.legend.location= (100, 70)
+    fig_odom.legend.orientation='horizontal'
+    fig_odom.legend.border_line_alpha=0
+    fig_odom.legend.background_fill_alpha=0
+
+    return {'fig': fig_odom, 'ref': ref_plotted, 'mat': mat_plotted, 'tru': tru_plotted}
+
+def updateOdomFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
+# Update odometryfigure with new data (match->mInd, true->tInd)
+# Use old handles (reference, match, true)
+    # Stream/append new value for "match" (estimate) and "true" (correct) odometry:
+    new_mat_data = dict()
+    new_tru_data = dict()
+    new_mat_data['x'] = nmrc.fig_odom_handles['mat'].data_source.data['x'] + [odom_in['position']['x'][mInd]]
+    new_mat_data['y'] = nmrc.fig_odom_handles['mat'].data_source.data['y'] + [odom_in['position']['y'][mInd]]
+    new_tru_data['x'] = nmrc.fig_odom_handles['tru'].data_source.data['x'] + [odom_in['position']['x'][tInd]]
+    new_tru_data['y'] = nmrc.fig_odom_handles['tru'].data_source.data['y'] + [odom_in['position']['y'][tInd]]
+    #nmrc.fig_odom_handles['mat'].data_source.data = new_mat_data
+    #nmrc.fig_odom_handles['tru'].data_source.data = new_tru_data
+    nmrc.fig_odom_handles['mat'].data_source.stream(new_mat_data, rollover=10)
+    nmrc.fig_odom_handles['tru'].data_source.stream(new_tru_data, rollover=10)

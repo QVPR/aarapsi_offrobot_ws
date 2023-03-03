@@ -7,104 +7,200 @@ from sensor_msgs.msg import PointCloud2
 import numpy as np
 import math
 import cv2
-
-import matplotlib.pyplot as plt
+from cv_bridge import CvBridge
+import sys
+import matplotlib
+matplotlib.use("Qt5agg")
+from matplotlib import pyplot as plt
+from sensor_msgs.msg import CompressedImage
+from aarapsi_intro_pack.core.missing_pixel_filler import fill_swath_fast,fill_swath_with_neighboring_pixel 
+from aarapsi_intro_pack.core.helper_tools import Timer
+import time
 
 class mrc:
     def __init__(self, node_name='lidar2panorama', anon=True, rate_num=20.0):
         rospy.init_node(node_name, anonymous=anon)
         rospy.loginfo('Starting %s node.' % (node_name))
 
-        lidar_topic = '/velodyne_points'
+        self.lidar_topic    = '/velodyne_points'
+        self.image_topic    = '/ros_indigosdk_occam/image%d/compressed'
 
-        lidar_sub = rospy.Subscriber(lidar_topic, PointCloud2, self.lidar_callback, queue_size=1)
+        self.lidar_sub      = rospy.Subscriber(self.lidar_topic, PointCloud2, self.lidar_callback, queue_size=1)
+
+        self.img_subs       = []
+        self.img_msgs       = [None]*5
+        self.new_imgs       = [False]*5
+
+        self.bridge = CvBridge()
+    
+        for i in range(5):
+            self.img_subs.append(rospy.Subscriber(self.image_topic % (i), CompressedImage, self.image_callback, (i)))
 
         ## Parse all the inputs:
-        self.rate_num               = rate_num # Hz
-        self.rate_obj               = rospy.Rate(self.rate_num)
+        self.rate_num       = rate_num # Hz
+        self.rate_obj       = rospy.Rate(self.rate_num)
 
-        self.lidar_msg              = PointCloud2()
-        self.new_lidar_msg          = False
+        self.lidar_msg      = PointCloud2()
+        self.new_lidar_msg  = False
 
-        # https://adioshun.gitbooks.io/pcl_snippet/content/3D-Point-cloud-to-2D-Panorama-view.html
-        self.SURROUND_U_STEP = 1.    #resolution
-        self.SURROUND_V_STEP = 1.33
-        self.SURROUND_U_MIN, self.SURROUND_U_MAX = np.array([0,    360])/self.SURROUND_U_STEP  # horizontal of cylindrial projection
-        self.SURROUND_V_MIN, self.SURROUND_V_MAX = np.array([-90,   90])/self.SURROUND_V_STEP  # vertical   of cylindrial projection
+    def image_callback(self, msg, id):
+        self.img_msgs[id]   = msg
+        self.new_imgs[id]   = True
 
     def lidar_callback(self, msg):
-        self.lidar_msg              = msg
-        self.new_lidar_msg          = True
+        self.lidar_msg      = msg
+        self.new_lidar_msg  = True
 
-    def lidar_to_surround_coords(self, x, y, z, d ):
+    def main_loop(self, lidar_h, sight_h, tdva, lidar_plr_h, sight_plr_h, pix_x, pix_y, pix_s):
+
+        timer = Timer()
+        timer.add()
+        if not self.new_lidar_msg and not all(self.new_imgs):
+            return
+        
+        self.new_lidar_msg = False
+        self.new_imgs = [False]*len(self.new_imgs)
+
+        # Hacked for ROS + our LiDAR from:
         # https://adioshun.gitbooks.io/pcl_snippet/content/3D-Point-cloud-to-2D-Panorama-view.html
-        u =   np.arctan2(x, y)/np.pi*180 /self.SURROUND_U_STEP
-        v = - np.arctan2(z, d)/np.pi*180 /self.SURROUND_V_STEP
-        u = (u +90)%360  ##<todo> car will be spit into 2 at boundary  ...
+        def size(a, dims = [], ind=0):
+            if ind == 0:
+                dims = []
+            if not isinstance(a, list):
+                return dims# quick exit
+            # if list:
+            dims.append(len(a))
+            if len(a) > 0:
+                dims = size(a[0], dims, ind + 1) # pass in current element
+            return dims
 
-        u = np.rint(u)
-        v = np.rint(v)
-        u = (u - self.SURROUND_U_MIN).astype(np.uint8)
-        v = (v - self.SURROUND_V_MIN).astype(np.uint8)
-
-        return u,v
-
-
-    def main_loop(self, imshow_handle):
         def normalise_to_255(a):
             return (((a - min(a)) / float(max(a) - min(a))) * 255).astype(np.uint8)
 
-        if not self.new_lidar_msg:
-            return
+        def lidar_to_surround_coords(x, y, z, d, pix_x, pix_y):
+            u =   np.arctan2(x, y) *(180/np.pi)
+            v = - np.arctan2(z, d) *(180/np.pi)
+            u = (u + 90) % 360
+            
+            u = ((u - min(u)) / (max(u) - min(u))) * (pix_x - 1)
+            v = ((v - min(v)) / (max(v) - min(v))) * (pix_y - 1)
+
+            u = np.rint(u).astype(int)
+            v = np.rint(v).astype(int)
+
+            return u, v
         
-        pc_xyzi = np.array(list(point_cloud2.read_points(self.lidar_msg, skip_nans=True, field_names=("x", "y", "z", "intensity"))))#, "ring", "time"
-        #d = np.sqrt(pc_xyzi[:,0]**2 + pc_xyzi[:,1]**2) # distance relative to origin ignoring 'z'
-        #t = np.arctan2(pc_xyzi[:,1], pc_xyzi[:,0])
+        def lidar_to_surround_img(x, y, z, r, pix_x, pix_y):
+            d = np.sqrt(x ** 2 + y ** 2)  # map distance relative to origin
+            u,v = lidar_to_surround_coords(x, y, z, d, pix_x, 31) # 31 = num lasers + num lasers - 1 (number of rows due to lasers + number of empty rows)
 
-        # plt.sca(axes)
-        # plt.cla()
-        # axes.plot(t, pc_xyzi[:,2])
-        # axes.set(xlabel='Angle (rad)', ylabel='Z-Axis')
+            panorama                = np.zeros((31, pix_x, 3), dtype=np.uint8)
+            panorama[v, u, 1]       = normalise_to_255(d)
+            panorama[v, u, 2]       = normalise_to_255(z)
+            panorama[v, u, 0]       = normalise_to_255(r)
+            panorama                = panorama[::2]
+            
+            return panorama
+                
+        def surround_coords_to_polar_coords(u, v, pix_s, mode='linear'):
+            LinTerm = ((pix_s-1)/ 2) - (((v - min(v)) / (max(v) - min(v))) * ((pix_s-1)/ 2))
+            if mode == 'linear':
+                R = LinTerm
+            elif mode == 'log10':
+                R = LinTerm * np.log10(R + 1) * pix_s / np.log10(pix_s + 1)
+
+            t = (((u - min(u)) / (max(u) - min(u))) * (np.pi * 2)) + (np.pi/2)
+
+            px = ((pix_s-1)/ 2) + (np.cos(t) * R)
+            py = ((pix_s-1)/ 2) + (np.sin(t) * R)
+
+            px = np.rint(px).astype(int)
+            py = np.rint(py).astype(int)
+
+            return px, py
         
-        # https://adioshun.gitbooks.io/pcl_snippet/content/3D-Point-cloud-to-2D-Panorama-view.html
-        x = pc_xyzi[:,0]
-        y = pc_xyzi[:,1]
-        z = pc_xyzi[:,2]
-        r = pc_xyzi[:,3]
+        def surround_to_polar_coords(surround, pix_s, mode='linear'):
+            u = np.repeat([np.arange(surround.shape[1])],surround.shape[0],0).flatten()
+            v = np.repeat(np.arange(surround.shape[0]),surround.shape[1],0)
 
-        d = np.sqrt(x ** 2 + y ** 2)  # map distance relative to origin
-        u,v = self.lidar_to_surround_coords(x,y,z,d)
+            px, py = surround_coords_to_polar_coords(u, v, pix_s, mode='linear')
 
-        width  = int(self.SURROUND_U_MAX - self.SURROUND_U_MIN + 1)
-        height = int(self.SURROUND_V_MAX - self.SURROUND_V_MIN + 1)
-        surround     = np.zeros((height, width, 3), dtype=np.float32)
-        surround_img = np.zeros((height, width, 3), dtype=np.uint8)
-
-        surround[v, u, 0] = d
-        surround[v, u, 1] = z
-        surround[v, u, 2] = r
-        surround_img[v, u, 0] = normalise_to_255(np.clip(d,     0, 30))
-        surround_img[v, u, 1] = normalise_to_255(np.clip(z+1.8, 0, 100))
-        surround_img[v, u, 2] = normalise_to_255(np.clip(r,     0, 30))
-
-        surround_img_resized = cv2.resize(surround, (100, 400), interpolation = cv2.INTER_AREA)
-        imshow_handle.set_data(surround_img_resized)
-        #imshow_handle.autoscale()
+            return px, py, u, v
         
-        
+        def surround_to_polar_img(surround, pix_s, mode='linear'):
+            px,py,su,sv             = surround_to_polar_coords(surround, pix_s, mode='linear')
+            polarimg                = np.zeros((pix_s, pix_s, 3), dtype=np.uint8)
+            polarimg[py, px, :]     = surround[sv, su, :]
+            return polarimg
+
+        pointcloud_xyzi = np.array(list(point_cloud2.read_points(self.lidar_msg, skip_nans=True, field_names=("x", "y", "z", "intensity"))))#, "ring", "time"
+        pc_xyzi = pointcloud_xyzi[pointcloud_xyzi[:,2] > -0.5] # ignore erroneous rows when they appear
+        x = np.array(pc_xyzi[:,0])
+        y = np.array(pc_xyzi[:,1])
+        z = np.array(pc_xyzi[:,2])
+        r = np.array(pc_xyzi[:,3]) # intensity, reflectance
+
+        lidar_pano = lidar_to_surround_img(x, y, z, r, pix_x, pix_y)
+        lidar_pano_clean = fill_swath_fast(lidar_pano)
+        lidar_pano_resize = cv2.resize(lidar_pano_clean, (pix_x, pix_y), interpolation = cv2.INTER_AREA)
+
+        lidar_plr_img = surround_to_polar_img(lidar_pano_resize, pix_s, mode='log10')
+
+        x0, y0 = np.where(np.sum(lidar_plr_img,2)==0)
+        lidar_plr_img[x0,y0,:] = [255,255,255]
+
+        #lidar_plr_img_clean = fill_swath_fast(lidar_plr_img)
+
+        lidar_h.set_data(lidar_pano_resize)
+        #sight_h.set_data()
+
+        lidar_plr_h.set_data(lidar_plr_img)
+        #sight_plr_h.set_data()
+
+        tdva.cla()
+        tdva.scatter(x, y, c=z)
+        tdva.set_aspect('equal')
+        tdva.set_xlim(-15, 15)
+        tdva.set_ylim(-15, 15)
+
+        timer.add()
+        fig.canvas.draw()
+        plt.pause(0.0001)
+
+        timer.add()
+        timer.addb()
+        timer.show("main_loop")
 
 if __name__ == '__main__':
     try:
         nmrc = mrc()
 
-        fig, axes = plt.subplots(1, 1, figsize=(15,4))
-        imshow_handle = axes.imshow(np.zeros((100,400,3)))
-        fig.show()
+        fig, axes = plt.subplots(3, 3, figsize=(15,8))
+        # https://matplotlib.org/stable/gallery/subplots_axes_and_figures/gridspec_and_subplots.html
+        gs_top = axes[0, 0].get_gridspec()
+        gs_mid = axes[1, 0].get_gridspec()
+        for ax in axes[0:2,:].flatten():
+            ax.remove()
+        ax_top = fig.add_subplot(gs_top[0,:])
+        ax_mid = fig.add_subplot(gs_mid[1,:])
+        pix_x = 800
+        pix_y = 90
+        pix_s = 128
 
+        image1 = np.zeros((pix_y, pix_x, 3))
+        lidar_h = ax_top.imshow(image1, cmap='gist_rainbow', vmin=0, vmax=1)
+        sight_h = ax_mid.imshow(image1, cmap='gist_rainbow', vmin=0, vmax=1)
+
+        image2 = np.zeros((pix_s, pix_s, 3))
+        lidar_plr_h = axes[2,1].imshow(image2, cmap='gist_rainbow', vmin=0, vmax=1)
+        sight_plr_h = axes[2,2].imshow(image2, cmap='gist_rainbow', vmin=0, vmax=1)
+        
+        fig.show()
+        timer = Timer()
         while not rospy.is_shutdown():
             nmrc.rate_obj.sleep()
-            nmrc.main_loop(imshow_handle)
-            fig.canvas.draw()
+            nmrc.main_loop(lidar_h, sight_h, axes[2,0], lidar_plr_h, sight_plr_h, pix_x, pix_y, pix_s)
+
             
         rospy.loginfo("Exit state reached.")
     except rospy.ROSInterruptException:

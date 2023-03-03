@@ -23,15 +23,16 @@ from sklearn import svm
 from sklearn.preprocessing import StandardScaler
 
 class mrc: # main ROS class
-    def __init__(self, ref_dataset_name, cal_dataset_name, database_path, image_feed_input, odometry_input, \
+    def __init__(self, ref_dataset_name, cal_qry_dataset_name, cal_ref_dataset_name, database_path, image_feed_input, odometry_input, \
                     compress_in=True, compress_out=False, \
                     rate_num=20.0, ft_type=FeatureType.RAW, img_dims=(64,64), icon_settings=(50,20), \
                     tolerance_threshold=5.0, tolerance_mode=Tolerance_Mode.METRE_LINE, \
                     match_metric='euclidean', namespace="/vpr_nodes", \
                     time_history_length=20, frame_id="base_link", \
                     node_name='vpr_monitor', anon=True,\
-                    cal_query_folder='forward', cal_reference_folder='forward_corrected',\
-                    ref_reference_folder='forward_corrected'\
+                    cal_qry_folder='forward',\
+                    cal_ref_folder='forward',\
+                    ref_ref_folder='forward'\
                 ):
 
         rospy.init_node(node_name, anonymous=anon)
@@ -46,11 +47,12 @@ class mrc: # main ROS class
 
         self.DATABASE_PATH      = database_path
         self.REF_DATA_NAME      = ref_dataset_name
-        self.CAL_DATA_NAME      = cal_dataset_name
+        self.CAL_QRY_DATA_NAME  = cal_qry_dataset_name
+        self.CAL_REF_DATA_NAME  = cal_ref_dataset_name
 
-        self.CAL_QRY_FOLDER     = cal_query_folder
-        self.CAL_REF_FOLDER     = cal_reference_folder
-        self.REF_REF_FOLDER     = ref_reference_folder
+        self.CAL_QRY_FOLDER     = cal_qry_folder
+        self.CAL_REF_FOLDER     = cal_ref_folder
+        self.REF_REF_FOLDER     = ref_ref_folder
 
         self.NAMESPACE          = namespace
         self.FEED_TOPIC         = image_feed_input
@@ -100,19 +102,17 @@ class mrc: # main ROS class
             self.exit()
 
         # Process calibration data (only needs to be done once)
-        rospy.logdebug("Loading calibration data set...")
-        self.cal_ip             = VPRImageProcessor()
-        if not self.cal_ip.npzLoader(self.DATABASE_PATH, self.CAL_DATA_NAME):
+        rospy.logdebug("Loading calibration query data set...")
+        self.cal_qry_ip             = VPRImageProcessor()
+        if not self.cal_qry_ip.npzLoader(self.DATABASE_PATH, self.CAL_QRY_DATA_NAME):
+            self.exit()
+        rospy.logdebug("Loading calibration reference data set...")
+        self.cal_ref_ip             = VPRImageProcessor()
+        if not self.cal_ref_ip.npzLoader(self.DATABASE_PATH, self.CAL_REF_DATA_NAME):
             self.exit()
 
         self.calibrate()
         self.train()
-        #print(self.REF_REF_FOLDER)
-        print(self.ref_ip.image_features)
-        print(self.ref_ip.image_features.shape)
-        self.Sref = cdist(self.ref_ip.image_features, self.ref_ip.image_features, self.MATCH_METRIC)
-        self.Srefmean = self.Sref.mean()
-        self.Srefstd = self.Sref.std()
 
         self.vpr_label_sub      = rospy.Subscriber(self.NAMESPACE + "/label" + self.in_img_tpc_mode, self.in_label_type, self.label_callback, queue_size=1)
 
@@ -151,14 +151,31 @@ class mrc: # main ROS class
             self.store_query    = self.bridge.imgmsg_to_cv2(self.request.queryImage, "passthrough")
 
         self.new_query        = True
-    
-    def calibrate(self):
-        #print(self.cal_ip.image_features.keys())
-        self.features_calref     = self.cal_ip.image_features[self.CAL_REF_FOLDER]
-        self.features_calqry     = self.cal_ip.image_features[self.CAL_QRY_FOLDER]
-        self.actual_match_cal    = np.arange(0, len(self.features_calqry))
-        self.Scal, _, _          = create_normalised_similarity_matrix(self.features_calref, self.features_calqry)
 
+    def clean_cal_data(self):
+        # Goals: 
+        # 1. Reshape calref to match length of calqry
+        # 2. Reorder calref to match 1:1 indices with calqry
+        calqry_xy = np.transpose(np.stack((self.odom_calqry['position']['x'],self.odom_calqry['position']['y'])))
+        calref_xy = np.transpose(np.stack((self.odom_calref['position']['x'],self.odom_calref['position']['y'])))
+        match_mat = np.sum((calqry_xy[:,np.newaxis] - calref_xy)**2, 2)
+        match_min = np.argmin(match_mat, 1) # should have the same number of rows as calqry (but as a vector)
+        calref_xy = calref_xy[match_min, :]
+        self.features_calref = self.features_calref[match_min, :]
+        diff = np.sqrt(np.sum(np.square(calref_xy - calqry_xy),1))
+        self.actual_match_cal = np.arange(len(self.features_calqry))
+
+    def calibrate(self, draw=False):
+        self.features_calqry                = np.array(self.cal_qry_ip.SET_DICT['img_feats'][self.CAL_QRY_FOLDER])
+        self.features_calref                = np.array(self.cal_ref_ip.SET_DICT['img_feats'][self.CAL_REF_FOLDER])
+        self.odom_calqry                    = self.cal_qry_ip.SET_DICT['odom']
+        self.odom_calref                    = self.cal_ref_ip.SET_DICT['odom']
+        self.clean_cal_data()
+        self.Scal, self.rmean, self.rstd    = create_normalised_similarity_matrix(self.features_calref, self.features_calqry)
+
+        if not draw:
+            return
+        
         fig, axes = plt.subplots(1,1,figsize=(10,6))
         imshow_handle = axes.imshow(self.Scal)
         axes.set_title('Calibration Set Distance Matrix')
@@ -171,7 +188,7 @@ class mrc: # main ROS class
 
     def train(self):
         # We define the acceptable tolerance for a 'correct' match as +/- one image frame:
-        self.tolerance      = 1
+        self.tolerance      = 10
 
         # Extract factors that describe the "sharpness" of distance vectors
         self.factor1_cal    = find_va_factor(self.Scal)
@@ -212,7 +229,7 @@ def main_loop(nmrc):
     nmrc.new_query = False
     nmrc.main_ready = False
 
-    sequence = (nmrc.request.data.dvc - nmrc.Srefmean) / nmrc.Srefstd # normalise using parameters from the reference set
+    sequence = (nmrc.request.data.dvc - nmrc.rmean) / nmrc.rstd # normalise using parameters from the reference set
     factor_x = find_va_factor(np.c_[sequence])
     factor_y = find_grad_factor(np.c_[sequence])
     Xrt = np.c_[factor_x,factor_y]      # put the two factors into a 2-column vector
@@ -230,45 +247,49 @@ def main_loop(nmrc):
         else:
             rospy.logerr('integrity prediction: %r [gt: %r]' % (y_pred_rt, gt_state_bool))
 
+def do_args():
+    parser = ap.ArgumentParser(prog="vpr_monitor", 
+                                description="ROS implementation of Helen Carson's Integrity Monitor, for integration with QVPR's VPR Primer",
+                                epilog="Maintainer: Owen Claxton (claxtono@qut.edu.au)")
+    
+    # Positional Arguments:
+    parser.add_argument('ref-dataset-name', help='Specify name of reference dataset (for fast loading; matches are made on names starting with provided string).')
+    parser.add_argument('cal-qry-dataset-name', help='Specify name of calibration query dataset (for fast loading; matches are made on names starting with provided string).')
+    parser.add_argument('cal-ref-dataset-name', help='Specify name of calibration reference dataset (for fast loading; matches are made on names starting with provided string).')
+    parser.add_argument('database-path', help="Specify path to where compressed databases exist (for fast loading).")
+    parser.add_argument('image-topic-in', help="Specify input image topic (exclude /compressed).")
+    parser.add_argument('odometry-topic-in', help="Specify input odometry topic (exclude /compressed).")
+
+    # Optional Arguments:
+    parser.add_argument('--compress-in', '-Ci', type=check_bool, default=False, help='Enable image compression on input (default: %(default)s)')
+    parser.add_argument('--compress-out', '-Co', type=check_bool, default=False, help='Enable image compression on output (default: %(default)s)')
+    parser.add_argument('--rate', '-r', type=check_positive_float, default=10.0, help='Set node rate (default: %(default)s).')
+    parser.add_argument('--time-history-length', '-l', type=check_positive_int, default=10, help='Set keep history size for logging true rate (default: %(default)s).')
+    parser.add_argument('--img-dims', '-i', type=check_positive_two_int_tuple, default=(64,64), help='Set image dimensions (default: %(default)s).')
+    ft_options, ft_options_text = enum_value_options(FeatureType, skip=FeatureType.NONE)
+    parser.add_argument('--ft-type', '-F', type=int, choices=ft_options, default=ft_options[0], \
+                        help='Choose feature type for extraction, types: %s (default: %s).' % (ft_options_text, '%(default)s'))
+    tolmode_options, tolmode_options_text = enum_value_options(Tolerance_Mode)
+    parser.add_argument('--tol-mode', '-t', type=int, choices=tolmode_options, default=tolmode_options[0], \
+                        help='Choose tolerance mode for ground truth, types: %s (default: %s).' % (tolmode_options_text, '%(default)s'))
+    parser.add_argument('--tol-thresh', '-T', type=check_positive_float, default=1.0, help='Set tolerance threshold for ground truth (default: %(default)s).')
+    parser.add_argument('--icon-info', '-p', dest='(size, distance)', type=check_positive_two_int_tuple, default=(50,20), help='Set icon (size, distance) (default: %(default)s).')
+    parser.add_argument('--node-name', '-N', default="vpr_all_in_one", help="Specify node name (default: %(default)s).")
+    parser.add_argument('--anon', '-a', type=check_bool, default=True, help="Specify whether node should be anonymous (default: %(default)s).")
+    parser.add_argument('--namespace', '-n', default="/vpr_nodes", help="Specify namespace for topics (default: %(default)s).")
+    parser.add_argument('--frame-id', '-f', default="base_link", help="Specify frame_id for messages (default: %(default)s).")
+
+
+    # Parse args...
+    raw_args = parser.parse_known_args()
+    return vars(raw_args[0])
+
 if __name__ == '__main__':
     try:
-        parser = ap.ArgumentParser(prog="vpr_monitor", 
-                                   description="ROS implementation of Helen Carson's Integrity Monitor, for integration with QVPR's VPR Primer",
-                                   epilog="Maintainer: Owen Claxton (claxtono@qut.edu.au)")
-        
-        # Positional Arguments:
-        parser.add_argument('ref-dataset-name', help='Specify name of reference dataset (for fast loading; matches are made on names starting with provided string).')
-        parser.add_argument('cal-dataset-name', help='Specify name of calibration dataset (for fast loading; matches are made on names starting with provided string).')
-        parser.add_argument('database-path', help="Specify path to where compressed databases exist (for fast loading).")
-        parser.add_argument('image-topic-in', help="Specify input image topic (exclude /compressed).")
-        parser.add_argument('odometry-topic-in', help="Specify input odometry topic (exclude /compressed).")
-
-        # Optional Arguments:
-        parser.add_argument('--compress-in', '-Ci', type=check_bool, default=False, help='Enable image compression on input (default: %(default)s)')
-        parser.add_argument('--compress-out', '-Co', type=check_bool, default=False, help='Enable image compression on output (default: %(default)s)')
-        parser.add_argument('--rate', '-r', type=check_positive_float, default=10.0, help='Set node rate (default: %(default)s).')
-        parser.add_argument('--time-history-length', '-l', type=check_positive_int, default=10, help='Set keep history size for logging true rate (default: %(default)s).')
-        parser.add_argument('--img-dims', '-i', type=check_positive_two_int_tuple, default=(64,64), help='Set image dimensions (default: %(default)s).')
-        ft_options, ft_options_text = enum_value_options(FeatureType, skip=FeatureType.NONE)
-        parser.add_argument('--ft-type', '-F', type=int, choices=ft_options, default=ft_options[0], \
-                            help='Choose feature type for extraction, types: %s (default: %s).' % (ft_options_text, '%(default)s'))
-        tolmode_options, tolmode_options_text = enum_value_options(Tolerance_Mode)
-        parser.add_argument('--tol-mode', '-t', type=int, choices=tolmode_options, default=tolmode_options[0], \
-                            help='Choose tolerance mode for ground truth, types: %s (default: %s).' % (tolmode_options_text, '%(default)s'))
-        parser.add_argument('--tol-thresh', '-T', type=check_positive_float, default=1.0, help='Set tolerance threshold for ground truth (default: %(default)s).')
-        parser.add_argument('--icon-info', '-p', dest='(size, distance)', type=check_positive_two_int_tuple, default=(50,20), help='Set icon (size, distance) (default: %(default)s).')
-        parser.add_argument('--node-name', '-N', default="vpr_all_in_one", help="Specify node name (default: %(default)s).")
-        parser.add_argument('--anon', '-a', type=check_bool, default=True, help="Specify whether node should be anonymous (default: %(default)s).")
-        parser.add_argument('--namespace', '-n', default="/vpr_nodes", help="Specify namespace for topics (default: %(default)s).")
-        parser.add_argument('--frame-id', '-f', default="base_link", help="Specify frame_id for messages (default: %(default)s).")
-
-
-        # Parse args...
-        raw_args = parser.parse_known_args()
-        args = vars(raw_args[0])
+        args = do_args()
 
         # Hand to class ...
-        nmrc = mrc(args['ref-dataset-name'], args['cal-dataset-name'], args['database-path'], args['image-topic-in'], args['odometry-topic-in'], \
+        nmrc = mrc(args['ref-dataset-name'], args['cal-qry-dataset-name'], args['cal-ref-dataset-name'], args['database-path'], args['image-topic-in'], args['odometry-topic-in'], \
                     compress_in=args['compress_in'], compress_out=args['compress_out'], \
                     rate_num=args['rate'], ft_type=enum_get(args['ft_type'], FeatureType), img_dims=args['img_dims'], icon_settings=args['(size, distance)'], \
                     tolerance_threshold=args['tol_thresh'], tolerance_mode=enum_get(args['tol_mode'], Tolerance_Mode), \

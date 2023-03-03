@@ -71,6 +71,13 @@ class mrc: # main ROS class
 
         self.bridge                 = CvBridge() # to convert sensor_msgs/(Compressed)Image to cv2.
 
+        # Process reference data (only needs to be done once)
+        self.image_processor        = VPRImageProcessor()
+        self.ref_dict               = self.image_processor.npzDatabaseLoadSave(self.DATABASE_PATH, self.REF_DATA_NAME, \
+                                                                                self.REF_IMG_PATH, self.REF_ODOM_PATH, \
+                                                                                self.FEAT_TYPE, self.IMG_DIMS, do_save=False)
+        self.img_folder             = 'forward'
+
         # Handle ROS details for input topics:
         if self.COMPRESS_IN:
             self.in_img_tpc_mode    = "/compressed"
@@ -97,6 +104,8 @@ class mrc: # main ROS class
             self.img_sub            = rospy.Subscriber(self.FEED_TOPIC + self.in_img_tpc_mode, self.in_image_type, self.img_callback, queue_size=1) 
             self.odom_sub           = rospy.Subscriber(self.ODOM_TOPIC, Odometry, self.odom_callback, queue_size=1)
             self.vpr_label_pub      = rospy.Publisher(self.NAMESPACE + "/label" + self.out_img_tpc_mode, self.out_label_type, queue_size=1)
+            self.rolling_mtrx       = rospy.Publisher(self.NAMESPACE + "/matrices/rolling" + self.out_img_tpc_mode, self.out_image_type, queue_size=1)
+            self.rolling_mtrx_img   = np.zeros((len(self.ref_dict['odom']['position']['x']), len(self.ref_dict['odom']['position']['x']))) # Make similarity matrix figure
         else:
             self.vpr_label_sub      = rospy.Subscriber(self.NAMESPACE + "/label" + self.in_img_tpc_mode, self.in_label_type, self.label_callback, queue_size=1)
 
@@ -112,13 +121,6 @@ class mrc: # main ROS class
 
         self.last_time              = rospy.Time.now()
         self.time_history           = []
-
-        # Process reference data (only needs to be done once)
-        self.image_processor        = VPRImageProcessor()
-        self.ref_dict               = self.image_processor.npzDatabaseLoadSave(self.DATABASE_PATH, self.REF_DATA_NAME, \
-                                                                                self.REF_IMG_PATH, self.REF_ODOM_PATH, \
-                                                                                self.FEAT_TYPE, self.IMG_DIMS, do_save=True)
-        self.img_folder             = 'forward'
 
         if self.DO_PLOTTING:
             # Prepare figures:
@@ -203,11 +205,24 @@ class mrc: # main ROS class
 
     def publish_ros_info(self, cv2_img, fid, tInd, mInd, dvc, mPath, state):
     # Publish label and/or image feed
+
+        self.rolling_mtrx_img = np.delete(self.rolling_mtrx_img, 0, 1) # delete first column (oldest query)
+        self.rolling_mtrx_img = np.concatenate((self.rolling_mtrx_img, np.flipud(dvc)), 1)
+
+        min_val = np.min(self.rolling_mtrx_img)
+        max_val = np.max(self.rolling_mtrx_img)
+        if max_val == 0: max_val == 1
+        mtrx_grey = (((self.rolling_mtrx_img - min_val) / (max_val - min_val) ) * 255).astype(np.uint8)
+        mtrx_grey_resize = np.flipud(cv2.resize(mtrx_grey, (500,500)))
+        mtrx_rgb = cv2.applyColorMap(mtrx_grey_resize, cv2.COLORMAP_JET)
+
         if self.COMPRESS_OUT:
             ros_image_to_pub = self.bridge.cv2_to_compressed_imgmsg(cv2_img, "jpg") # jpg (png slower)
+            ros_matrix_to_pub = nmrc.bridge.cv2_to_compressed_imgmsg(mtrx_rgb, "jpg") # jpg (png slower)
             struct_to_pub = CompressedImageLabelStamped()
         else:
-            ros_image_to_pub = self.bridge.cv2_to_imgmsg(cv2_img, "passthrough")
+            ros_image_to_pub = self.bridge.cv2_to_imgmsg(cv2_img, "bgr8")
+            ros_matrix_to_pub = nmrc.bridge.cv2_to_imgmsg(mtrx_rgb, "bgr8")
             struct_to_pub = ImageLabelStamped()
             
         ros_image_to_pub.header.stamp = rospy.Time.now()
@@ -226,6 +241,7 @@ class mrc: # main ROS class
         struct_to_pub.header.frame_id = fid
         struct_to_pub.header.stamp = rospy.Time.now()
 
+        self.rolling_mtrx.publish(ros_matrix_to_pub)
         if self.MAKE_IMAGE:
             self.vpr_feed_pub.publish(ros_image_to_pub) # image feed publisher
         if self.MAKE_LABEL:
@@ -236,6 +252,7 @@ def main_loop(nmrc):
 
     if nmrc.do_show and nmrc.DO_PLOTTING: # set by timer callback and node input
         nmrc.fig.canvas.draw() # update all fig subplots
+        plt.pause(0.001)
         nmrc.do_show = False # clear flag
 
     if not (nmrc.new_query and (nmrc.new_odom or not nmrc.MAKE_LABEL) and nmrc.main_ready): # denest
@@ -292,12 +309,6 @@ def main_loop(nmrc):
 
         ground_truth_string = ", Error: %2.2f%s" % (tolError, tolString)
 
-    if nmrc.DO_PLOTTING: # set by node input
-        # Update odometry visualisation:
-        updateMtrxFig(matchInd, trueInd, dvc, nmrc.ref_dict['odom'], nmrc.fig_mtrx_handles)
-        updateDVecFig(matchInd, trueInd, dvc, nmrc.ref_dict['odom'], nmrc.fig_dvec_handles)
-        updateOdomFig(matchInd, trueInd, dvc, nmrc.ref_dict['odom'], nmrc.fig_odom_handles)
-
     if nmrc.MAKE_IMAGE: # set by node input
         # make labelled match+query image and add icon for groundtruthing (if enabled):
         cv2_image_to_pub = makeImage(nmrc.store_query, np.reshape(np.array(nmrc.ref_dict['img_feats'][nmrc.img_folder])[matchInd,:], nmrc.ref_dict['img_dims']), \
@@ -320,52 +331,60 @@ def main_loop(nmrc):
         img_to_pub = cv2_img_lab
     else:
         img_to_pub = nmrc.store_query
+
+    if nmrc.DO_PLOTTING: # set by node input
+        # Update odometry visualisation:
+        updateMtrxFig(matchInd, trueInd, dvc, nmrc.ref_dict['odom'], nmrc.fig_mtrx_handles)
+        updateDVecFig(matchInd, trueInd, dvc, nmrc.ref_dict['odom'], nmrc.fig_dvec_handles)
+        updateOdomFig(matchInd, trueInd, dvc, nmrc.ref_dict['odom'], nmrc.fig_odom_handles)
     
     # Make ROS messages
     nmrc.publish_ros_info(img_to_pub, nmrc.FRAME_ID, trueInd, matchInd, dvc, str(nmrc.ref_dict['image_paths']).replace('\'',''), tolState)
 
+def do_args():
+    parser = ap.ArgumentParser(prog="vpr_all_in_one", 
+                                description="ROS implementation of QVPR's VPR Primer",
+                                epilog="Maintainer: Owen Claxton (claxtono@qut.edu.au)")
+    
+    # Positional Arguments:
+    parser.add_argument('dataset-name', help='Specify name of dataset (for fast loading; matches are made on names starting with provided string).')
+    parser.add_argument('database-path', help="Specify path to where compressed databases exist (for fast loading).")
+    parser.add_argument('ref-imgs-path', type=check_str_list, help="Specify path to reference images (for slow loading).")
+    parser.add_argument('ref-odom-path', help="Specify path to reference odometry (for slow loading).")
+    parser.add_argument('image-topic-in', help="Specify input image topic (exclude /compressed).")
+    parser.add_argument('odometry-topic-in', help="Specify input odometry topic (exclude /compressed).")
+
+    # Optional Arguments:
+    parser.add_argument('--compress-in', '-Ci', type=check_bool, default=False, help='Enable image compression on input (default: %(default)s)')
+    parser.add_argument('--compress-out', '-Co', type=check_bool, default=False, help='Enable image compression on output (default: %(default)s)')
+    parser.add_argument('--do-plotting', '-P', type=check_bool, default=False, help='Enable matplotlib visualisations (default: %(default)s)')
+    parser.add_argument('--make-images', '-I', type=check_bool, default=False, help='Enable image topic generation (default: %(default)s)')
+    parser.add_argument('--groundtruth', '-G', type=check_bool, default=False, help='Enable groundtruth inclusion (default: %(default)s)')
+    parser.add_argument('--make-labels', '-L', type=check_bool, default=True, help='Enable label topic generation; false enables a subscriber instead (default: %(default)s)')
+    parser.add_argument('--rate', '-r', type=check_positive_float, default=10.0, help='Set node rate (default: %(default)s).')
+    parser.add_argument('--time-history-length', '-l', type=check_positive_int, default=10, help='Set keep history size for logging true rate (default: %(default)s).')
+    parser.add_argument('--img-dims', '-i', type=check_positive_two_int_tuple, default=(64,64), help='Set image dimensions (default: %(default)s).')
+    ft_options, ft_options_text = enum_value_options(FeatureType, skip=FeatureType.NONE)
+    parser.add_argument('--ft-type', '-F', type=int, choices=ft_options, default=ft_options[0], \
+                        help='Choose feature type for extraction, types: %s (default: %s).' % (ft_options_text, '%(default)s'))
+    tolmode_options, tolmode_options_text = enum_value_options(Tolerance_Mode)
+    parser.add_argument('--tol-mode', '-t', type=int, choices=tolmode_options, default=tolmode_options[0], \
+                        help='Choose tolerance mode for ground truth, types: %s (default: %s).' % (tolmode_options_text, '%(default)s'))
+    parser.add_argument('--tol-thresh', '-T', type=check_positive_float, default=1.0, help='Set tolerance threshold for ground truth (default: %(default)s).')
+    parser.add_argument('--icon-info', '-p', dest='(size, distance)', type=check_positive_two_int_tuple, default=(50,20), help='Set icon (size, distance) (default: %(default)s).')
+    parser.add_argument('--node-name', '-N', default="vpr_all_in_one", help="Specify node name (default: %(default)s).")
+    parser.add_argument('--anon', '-a', type=check_bool, default=True, help="Specify whether node should be anonymous (default: %(default)s).")
+    parser.add_argument('--namespace', '-n', default="/vpr_nodes", help="Specify namespace for topics (default: %(default)s).")
+    parser.add_argument('--frame-id', '-f', default="base_link", help="Specify frame_id for messages (default: %(default)s).")
+
+    # Parse args...
+    raw_args = parser.parse_known_args()
+    return vars(raw_args[0])
+
 if __name__ == '__main__':
     try:
-        parser = ap.ArgumentParser(prog="vpr_all_in_one", 
-                                   description="ROS implementation of QVPR's VPR Primer",
-                                   epilog="Maintainer: Owen Claxton (claxtono@qut.edu.au)")
+        args = do_args()
         
-        # Positional Arguments:
-        parser.add_argument('dataset-name', help='Specify name of dataset (for fast loading; matches are made on names starting with provided string).')
-        parser.add_argument('database-path', help="Specify path to where compressed databases exist (for fast loading).")
-        parser.add_argument('ref-imgs-path', type=check_str_list, help="Specify path to reference images (for slow loading).")
-        parser.add_argument('ref-odom-path', help="Specify path to reference odometry (for slow loading).")
-        parser.add_argument('image-topic-in', help="Specify input image topic (exclude /compressed).")
-        parser.add_argument('odometry-topic-in', help="Specify input odometry topic (exclude /compressed).")
-
-        # Optional Arguments:
-        parser.add_argument('--compress-in', '-Ci', type=check_bool, default=False, help='Enable image compression on input (default: %(default)s)')
-        parser.add_argument('--compress-out', '-Co', type=check_bool, default=False, help='Enable image compression on output (default: %(default)s)')
-        parser.add_argument('--do-plotting', '-P', type=check_bool, default=False, help='Enable matplotlib visualisations (default: %(default)s)')
-        parser.add_argument('--make-images', '-I', type=check_bool, default=False, help='Enable image topic generation (default: %(default)s)')
-        parser.add_argument('--groundtruth', '-G', type=check_bool, default=False, help='Enable groundtruth inclusion (default: %(default)s)')
-        parser.add_argument('--make-labels', '-L', type=check_bool, default=True, help='Enable label topic generation; false enables a subscriber instead (default: %(default)s)')
-        parser.add_argument('--rate', '-r', type=check_positive_float, default=10.0, help='Set node rate (default: %(default)s).')
-        parser.add_argument('--time-history-length', '-l', type=check_positive_int, default=10, help='Set keep history size for logging true rate (default: %(default)s).')
-        parser.add_argument('--img-dims', '-i', type=check_positive_two_int_tuple, default=(64,64), help='Set image dimensions (default: %(default)s).')
-        ft_options, ft_options_text = enum_value_options(FeatureType, skip=FeatureType.NONE)
-        parser.add_argument('--ft-type', '-F', type=int, choices=ft_options, default=ft_options[0], \
-                            help='Choose feature type for extraction, types: %s (default: %s).' % (ft_options_text, '%(default)s'))
-        tolmode_options, tolmode_options_text = enum_value_options(Tolerance_Mode)
-        parser.add_argument('--tol-mode', '-t', type=int, choices=tolmode_options, default=tolmode_options[0], \
-                            help='Choose tolerance mode for ground truth, types: %s (default: %s).' % (tolmode_options_text, '%(default)s'))
-        parser.add_argument('--tol-thresh', '-T', type=check_positive_float, default=1.0, help='Set tolerance threshold for ground truth (default: %(default)s).')
-        parser.add_argument('--icon-info', '-p', dest='(size, distance)', type=check_positive_two_int_tuple, default=(50,20), help='Set icon (size, distance) (default: %(default)s).')
-        parser.add_argument('--node-name', '-N', default="vpr_all_in_one", help="Specify node name (default: %(default)s).")
-        parser.add_argument('--anon', '-a', type=check_bool, default=True, help="Specify whether node should be anonymous (default: %(default)s).")
-        parser.add_argument('--namespace', '-n', default="/vpr_nodes", help="Specify namespace for topics (default: %(default)s).")
-        parser.add_argument('--frame-id', '-f', default="base_link", help="Specify frame_id for messages (default: %(default)s).")
-
-        # Parse args...
-        raw_args = parser.parse_known_args()
-        args = vars(raw_args[0])
-        
-
         # Hand to class ...
         nmrc = mrc(args['database-path'], args['ref-imgs-path'], args['ref-odom-path'], args['image-topic-in'], args['odometry-topic-in'], \
                     args['dataset-name'], compress_in=args['compress_in'], compress_out=args['compress_out'], do_plotting=args['do_plotting'], do_image=args['make_images'], \
