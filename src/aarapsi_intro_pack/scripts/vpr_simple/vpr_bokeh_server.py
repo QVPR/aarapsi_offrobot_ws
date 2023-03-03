@@ -51,7 +51,7 @@ class mrc: # main ROS class
             self.in_image_type      = Image
             self.in_label_type      = ImageLabelStamped
 
-        self.vpr_label_sub      = rospy.Subscriber(self.NAMESPACE + "/label" + self.in_img_tpc_mode, self.in_label_type, self.label_callback, queue_size=1)
+        self.vpr_label_sub          = rospy.Subscriber(self.NAMESPACE + "/label" + self.in_img_tpc_mode, self.in_label_type, self.label_callback, queue_size=1)
 
         # flags to denest main loop:
         self.new_query              = False # new query image (MAKE_LABEL==True) or new label received (MAKE_LABEL==False)
@@ -64,9 +64,9 @@ class mrc: # main ROS class
 
         # Prepare figures:
         #self.fig.suptitle("Odometry Visualised")
-        iframe_start = """<iframe src="http://131.181.33.60:8080/stream?topic="""
-        iframe_end_rect = """&type=ros_compressed" width=2000 height=1000 style="transform: scale(0.5); transform-origin: 0 0;"/>"""
-        iframe_end_even = """&type=ros_compressed" width=510 height=510 style="transform: scale(0.99); transform-origin: 0 0;"/>"""
+        iframe_start          = """<iframe src="http://131.181.33.60:8080/stream?topic="""
+        iframe_end_rect       = """&type=ros_compressed" width=2000 height=1000 style="border: 0; transform: scale(0.5); transform-origin: 0 0;"/>"""
+        iframe_end_even       = """&type=ros_compressed" width=510 height=510 style="border: 0; transform: scale(0.99); transform-origin: 0 0;"/>"""
         self.fig_iframe_feed_ = Div(text=iframe_start + """/vpr_nodes/image""" + iframe_end_rect, width=500, height=250)
         self.fig_iframe_frwd_ = Div(text=iframe_start + """/ros_indigosdk_occam/image0""" + iframe_end_rect, width=500, height=250)
         self.fig_iframe_mtrx_ = Div(text=iframe_start + """/vpr_nodes/matrices/rolling""" + iframe_end_even, width=500, height=500)
