@@ -165,26 +165,13 @@ class mrc: # main ROS class
         diff = np.sqrt(np.sum(np.square(calref_xy - calqry_xy),1))
         self.actual_match_cal = np.arange(len(self.features_calqry))
 
-    def calibrate(self, draw=False):
+    def calibrate(self):
         self.features_calqry                = np.array(self.cal_qry_ip.SET_DICT['img_feats'][self.CAL_QRY_FOLDER])
         self.features_calref                = np.array(self.cal_ref_ip.SET_DICT['img_feats'][self.CAL_REF_FOLDER])
         self.odom_calqry                    = self.cal_qry_ip.SET_DICT['odom']
         self.odom_calref                    = self.cal_ref_ip.SET_DICT['odom']
         self.clean_cal_data()
         self.Scal, self.rmean, self.rstd    = create_normalised_similarity_matrix(self.features_calref, self.features_calqry)
-
-        if not draw:
-            return
-        
-        fig, axes = plt.subplots(1,1,figsize=(10,6))
-        imshow_handle = axes.imshow(self.Scal)
-        axes.set_title('Calibration Set Distance Matrix')
-        axes.set_xlabel('query frame'); axes.set_ylabel('reference frame')
-        fig.show()
-        imshow_handle.set_data(self.Scal)
-
-        fig.canvas.draw() # NEEDED
-        fig.canvas.draw() # >> two required to draw with no pause
 
     def train(self):
         # We define the acceptable tolerance for a 'correct' match as +/- one image frame:
@@ -204,7 +191,7 @@ class mrc: # main ROS class
         self.y_cal          = find_y(self.Scal, self.actual_match_cal, self.tolerance)
 
         # Define and train the Support Vector Machine
-        self.model          = svm.SVC(kernel='rbf', C=1, gamma='scale', class_weight='balanced')
+        self.model          = svm.SVC(kernel='rbf', C=1, gamma='scale', class_weight='balanced', probability=True)
         self.model.fit(self.Xcal_scaled, self.y_cal)
 
         # Make predictions on calibration set to assess performance
@@ -213,6 +200,10 @@ class mrc: # main ROS class
 
         rospy.loginfo('Performance of prediction on Calibration set: ')
         find_prediction_performance_metrics(self.y_pred_cal, self.y_cal, verbose=True)
+
+        # Generate decision function matrix:
+        f1 = np.linspace(0, factor1.max(),SIZE)
+        f2 = np.linspace(0, factor2.max(),SIZE)
 
 
 def exit(self):
