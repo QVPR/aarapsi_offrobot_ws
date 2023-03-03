@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
 
 import rospy
-from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Image, CompressedImage
 from cv_bridge import CvBridge
 
 import numpy as np
 import rospkg
-from matplotlib import pyplot as plt
 import argparse as ap
 import os
 import sys
-from scipy.spatial.distance import cdist
+import cv2
 
-from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped # Our custom structures
-from aarapsi_intro_pack import VPRImageProcessor, Tolerance_Mode, FeatureType
+from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped, MonitorDetails # Our custom structures
+from aarapsi_intro_pack import VPRImageProcessor, Tolerance_Mode, FeatureType, grey2dToColourMap
 from aarapsi_intro_pack.vpred import *
 from aarapsi_intro_pack.core.enum_tools import enum_value_options, enum_get
 from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_positive_two_int_tuple, check_positive_int, check_bool
@@ -111,10 +109,9 @@ class mrc: # main ROS class
         if not self.cal_ref_ip.npzLoader(self.DATABASE_PATH, self.CAL_REF_DATA_NAME):
             self.exit()
 
-        self.calibrate()
-        self.train()
-
         self.vpr_label_sub      = rospy.Subscriber(self.NAMESPACE + "/label" + self.in_img_tpc_mode, self.in_label_type, self.label_callback, queue_size=1)
+        self.svm_state_pub      = rospy.Publisher(self.NAMESPACE + "/monitor/state", MonitorDetails, queue_size=1)
+        self.svm_field_pub      = rospy.Publisher(self.NAMESPACE + "/monitor/field", self.out_image_type, queue_size=1, latch=True)
 
         # flags to denest main loop:
         self.new_query              = False # new label received
@@ -123,14 +120,10 @@ class mrc: # main ROS class
         self.last_time              = rospy.Time.now()
         self.time_history           = []
 
-        # Last item as it sets a flag that enables main loop execution.
-        self.main_timer             = rospy.Timer(rospy.Duration(1/self.rate_num), self.main_cb) # Main loop rate limiter
-
         self.states                 = [0,0,0]
 
-    def main_cb(self, event):
-    # Toggle flag to let main loop continue execution
-    # This is currently bottlenecked by node performance and a rate limiter regardless, but I have kept it for future work
+        self.calibrate()
+        self.train()
 
         self.main_ready = True
 
@@ -202,9 +195,20 @@ class mrc: # main ROS class
         find_prediction_performance_metrics(self.y_pred_cal, self.y_cal, verbose=True)
 
         # Generate decision function matrix:
-        f1 = np.linspace(0, factor1.max(),SIZE)
-        f2 = np.linspace(0, factor2.max(),SIZE)
+        array_dim   = 500 # affects performance with the trade-off on how "nice"/"smooth" it looks
+        f1          = np.linspace(0, self.factor1_cal.max(), array_dim)
+        f2          = np.linspace(0, self.factor2_cal.max(), array_dim)
+        F1, F2      = np.meshgrid(f1, f2)
+        Fscaled     = self.scaler.transform(np.vstack([F1.ravel(), F2.ravel()]).T)
+        y_zvalues_t = self.model.decision_function(Fscaled).reshape([array_dim, array_dim])
+        mtrx_rgb    = np.flipud(grey2dToColourMap(y_zvalues_t, dims=(500,500), colourmap=cv2.COLORMAP_VIRIDIS)) # flip so 0,0 is bottom left
 
+        if self.COMPRESS_OUT:
+            ros_matrix_to_pub = self.bridge.cv2_to_compressed_imgmsg(mtrx_rgb, "jpg") # jpg (png slower)
+        else:
+            ros_matrix_to_pub = self.bridge.cv2_to_imgmsg(mtrx_rgb, "bgr8")
+
+        self.svm_field_pub.publish(ros_matrix_to_pub)
 
 def exit(self):
     rospy.loginfo("Quit received.")
@@ -218,13 +222,14 @@ def main_loop(nmrc):
 
     rospy.loginfo("Query received.")
     nmrc.new_query = False
-    nmrc.main_ready = False
 
     sequence = (nmrc.request.data.dvc - nmrc.rmean) / nmrc.rstd # normalise using parameters from the reference set
-    factor_x = find_va_factor(np.c_[sequence])
-    factor_y = find_grad_factor(np.c_[sequence])
-    Xrt = np.c_[factor_x,factor_y]      # put the two factors into a 2-column vector
+    factor1_qry = find_va_factor(np.c_[sequence])
+    factor2_qry = find_grad_factor(np.c_[sequence])
+    # rt for realtime; still don't know what 'X' and 'y' mean! TODO
+    Xrt = np.c_[factor1_qry, factor2_qry]      # put the two factors into a 2-column vector
     Xrt_scaled = nmrc.scaler.transform(Xrt)  # perform scaling using same parameters as calibration set
+    y_zvalues_rt = nmrc.model.decision_function(Xrt_scaled) # not sure what this is just yet TODO
     y_pred_rt = nmrc.model.predict(Xrt_scaled)[0] # Make the prediction: predict whether this match is good or bad
 
     if nmrc.request.data.state == 0:

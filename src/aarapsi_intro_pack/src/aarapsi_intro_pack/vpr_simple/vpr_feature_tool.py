@@ -14,6 +14,8 @@ class FeatureType(Enum):
     NONE = 0
     RAW = 1
     PATCHNORM = 2
+    NETVLAD = 3
+    HYBRID  = 4
 
 # For logging
 class State(Enum):

@@ -57,6 +57,7 @@ catkin_python_setup()
 add_message_files(
   FILES
   LabelDetails.msg
+  MonitorDetails.msg
   ImageLabelStamped.msg
   CompressedImageLabelStamped.msg
   Heartbeat.msg

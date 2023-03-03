@@ -14,7 +14,7 @@ import os
 from scipy.spatial.distance import cdist
 
 from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped # Our custom msg structures
-from aarapsi_intro_pack import VPRImageProcessor, Tolerance_Mode, FeatureType, labelImage, makeImage, \
+from aarapsi_intro_pack import VPRImageProcessor, Tolerance_Mode, FeatureType, labelImage, makeImage, grey2dToColourMap, \
                                 doMtrxFig, updateMtrxFig, doDVecFig, updateDVecFig, doOdomFig, updateOdomFig
 from aarapsi_intro_pack.core.enum_tools import enum_value_options, enum_get
 from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_positive_two_int_tuple, check_positive_int, check_bool, check_str_list
@@ -207,23 +207,17 @@ class mrc: # main ROS class
     # Publish label and/or image feed
 
         self.rolling_mtrx_img = np.delete(self.rolling_mtrx_img, 0, 1) # delete first column (oldest query)
-        self.rolling_mtrx_img = np.concatenate((self.rolling_mtrx_img, np.flipud(dvc)), 1)
-
-        min_val = np.min(self.rolling_mtrx_img)
-        max_val = np.max(self.rolling_mtrx_img)
-        if max_val == 0: max_val == 1
-        mtrx_grey = (((self.rolling_mtrx_img - min_val) / (max_val - min_val) ) * 255).astype(np.uint8)
-        mtrx_grey_resize = np.flipud(cv2.resize(mtrx_grey, (500,500)))
-        mtrx_rgb = cv2.applyColorMap(mtrx_grey_resize, cv2.COLORMAP_JET)
+        self.rolling_mtrx_img = np.concatenate((self.rolling_mtrx_img, dvc), 1)
+        
+        mtrx_rgb = grey2dToColourMap(self.rolling_mtrx_img, dims=(500,500), colourmap=cv2.COLORMAP_JET)
 
         if self.COMPRESS_OUT:
             ros_image_to_pub = self.bridge.cv2_to_compressed_imgmsg(cv2_img, "jpg") # jpg (png slower)
             ros_matrix_to_pub = nmrc.bridge.cv2_to_compressed_imgmsg(mtrx_rgb, "jpg") # jpg (png slower)
-            struct_to_pub = CompressedImageLabelStamped()
         else:
             ros_image_to_pub = self.bridge.cv2_to_imgmsg(cv2_img, "bgr8")
             ros_matrix_to_pub = nmrc.bridge.cv2_to_imgmsg(mtrx_rgb, "bgr8")
-            struct_to_pub = ImageLabelStamped()
+        struct_to_pub = self.out_label_type()
             
         ros_image_to_pub.header.stamp = rospy.Time.now()
         ros_image_to_pub.header.frame_id = fid

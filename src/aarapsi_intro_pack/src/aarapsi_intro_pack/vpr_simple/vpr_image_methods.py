@@ -1,6 +1,15 @@
 import cv2
 import numpy as np
 
+def grey2dToColourMap(matrix, colourmap=cv2.COLORMAP_JET, dims=None):
+    min_val = np.min(matrix)
+    max_val = np.max(matrix)
+    matnorm = (((matrix - min_val) / (max_val - min_val)) * 255).astype(np.uint8)
+    if not (dims is None):
+        matnorm = cv2.resize(matnorm, dims)
+    mat_rgb = cv2.applyColorMap(matnorm, colourmap)
+    return mat_rgb
+
 def labelImage(img_in, textstring, org_in, colour):
 # Write textstring at position org_in, with colour and black border on img_in
 
