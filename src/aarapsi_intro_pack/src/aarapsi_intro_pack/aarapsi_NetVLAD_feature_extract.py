@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 
 '''
 Copyright (c) 2021 Stephen Hausler, Sourav Garg, Ming Xu, Michael Milford and Tobias Fischer
@@ -50,10 +50,6 @@ from patchnetvlad.tools.datasets import PlaceDataset
 from patchnetvlad.models.models_generic import get_backend, get_model, get_pca_encoding
 from patchnetvlad.tools import PATCHNETVLAD_ROOT_DIR
 
-def tester():
-    print('Hello')
-
-
 def input_transform(resize=(480, 640)):
     if resize[0] > 0 and resize[1] > 0:
         return transforms.Compose([
@@ -82,7 +78,7 @@ def feature_query_extract(img, model, cuda, config):
         vlad_global = model.pool(image_encoding)
         vlad_global_pca = get_pca_encoding(model, vlad_global)
 
-    return vlad_global_pca.detach().cpu().numpy()
+    return np.squeeze(vlad_global_pca.detach().cpu().numpy())
 
 def feature_ref_extract(dataset_file_path, dataset_root_dir, model, device, output_features_dir, cuda, config):
     if not os.path.isfile(dataset_file_path):
@@ -112,27 +108,6 @@ def feature_ref_extract(dataset_file_path, dataset_root_dir, model, device, outp
             indices_np = indices.detach().numpy()
             input_data = input_data.to(device)
             image_encoding = model.encoder(input_data)
-            # if config['global_params']['pooling'].lower() == 'patchnetvlad':
-            #     vlad_local, vlad_global = model.pool(image_encoding)
-
-            #     vlad_global_pca = get_pca_encoding(model, vlad_global)
-            #     db_feat[indices_np, :] = vlad_global_pca.detach().cpu().numpy()
-
-            #     for this_iter, this_local in enumerate(vlad_local):
-            #         this_patch_size = model.pool.patch_sizes[this_iter]
-
-            #         db_feat_patches = np.empty((this_local.size(0), pool_size, this_local.size(2)),
-            #                                   dtype=np.float32)
-            #         grid = np.indices((1, this_local.size(0)))
-            #         this_local_pca = get_pca_encoding(model, this_local.permute(2, 0, 1).reshape(-1, this_local.size(1))).\
-            #             reshape(this_local.size(2), this_local.size(0), pool_size).permute(1, 2, 0)
-            #         db_feat_patches[grid, :, :] = this_local_pca.detach().cpu().numpy()
-
-            #         for i, val in enumerate(indices_np):
-            #             image_name = os.path.splitext(os.path.basename(eval_set.images[val]))[0]
-            #             filename = output_local_features_prefix + '_' + 'psize{}_'.format(this_patch_size) + image_name + '.npy'
-            #             np.save(filename, db_feat_patches[i, :, :])
-            # else:
             vlad_global = model.pool(image_encoding)
             vlad_global_pca = get_pca_encoding(model, vlad_global)
             db_feat[indices_np, :] = vlad_global_pca.detach().cpu().numpy()

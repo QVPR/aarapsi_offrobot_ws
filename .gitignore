@@ -8,3 +8,4 @@ src/aarapsi_intro_pack/data/
 __pycache__
 src/CMakeLists.txt
 *:Zone.Identifier
+*.caffemodel
