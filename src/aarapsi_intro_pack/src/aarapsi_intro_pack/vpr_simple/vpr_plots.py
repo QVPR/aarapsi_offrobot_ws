@@ -1,6 +1,8 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from bokeh.plotting import figure
+from bokeh.palettes import Sunset11
+from bokeh.models import ColumnDataSource
 import cv2
 
 #   _____       _____  _       _   
@@ -105,6 +107,84 @@ def updateOdomFig(mInd, tInd, dvc, odom_in, fig_handles):
 #  | |_) | (_) |   <  __/ | | |
 #  |____/ \___/|_|\_\___|_| |_|
     
+def disable_toolbar(fig, interact=False):
+    # hide toolbar and disable plot interaction
+    fig.toolbar_location = None
+    if not interact:
+        fig.toolbar.active_drag = None
+        fig.toolbar.active_scroll = None
+        fig.toolbar.active_tap = None
+    return fig
+
+def get_contour_data(X, Y, Z, levels):
+    cs = plt.contour(X, Y, Z, levels)
+    xs = []
+    ys = []
+    xt = []
+    yt = []
+    col = []
+    text = []
+    isolevelid = 0
+    for isolevel in cs.collections:
+        isocol = isolevel.get_color()[0]
+        thecol = 3 * [None]
+        theiso = str(cs.get_array()[isolevelid])
+        isolevelid += 1
+        for i in range(3):
+            thecol[i] = int(255 * isocol[i])
+        thecol = '#%02x%02x%02x' % (thecol[0], thecol[1], thecol[2])
+
+        for path in isolevel.get_paths():
+            v = path.vertices
+            x = v[:, 0]
+            y = v[:, 1]
+            xs.append(x.tolist())
+            ys.append(y.tolist())
+            try:
+                xt.append(x[len(x) / 2])
+                yt.append(y[len(y) / 2])
+            except:
+                xt.append(5)
+                yt.append(5)
+            text.append(theiso)
+            col.append(thecol)
+
+    source = ColumnDataSource(data={'xs': xs, 'ys': ys, 'line_color': col,'xt':xt,'yt':yt,'text':text})
+    return source
+
+##################################################################
+#### Contour Figure: do and update
+
+def doCntrFigBokeh(nmrc, odom_in, img_mat=None):
+# Set up contour figure
+    # TODO: add lines https://stackoverflow.com/questions/33533047/how-to-make-a-contour-plot-in-python-using-bokeh-or-other-libs
+    # fig_cntr    = figure(title="SVM Contour", width=250, height=250, \
+    #                         x_axis_label = 'VA Factor', y_axis_label = 'Grad Factor', \
+    #                         x_range = (0, 500), y_range = (0, 500))
+    # fig_cntr    = disable_toolbar(fig_cntr)
+
+    # if (img_mat is None):
+    #     img_mat     = np.random.rand(500,500)
+    # x, y        = np.meshgrid(np.arange(img_mat.shape[1]), np.arange(img_mat.shape[0]))
+    # levels      = np.linspace(0,1,11) # num levels = 11 (between 0 and 1)
+    # source      = get_contour_data(x, y, img_mat, levels)
+
+    # img_plotted = fig_cntr.image([img_mat])
+    # mln_plotted = fig_cntr.multi_line(xs='xs', ys='ys', line_color='line_color', source=source)
+    # txt_plotted = fig_cntr.text(x='xt',y='yt',text='text',source=source,text_baseline='middle',text_align='center')
+
+    # # https://docs.bokeh.org/en/dev-3.0/docs/user_guide/specialized/contour.html
+    # #img_plotted = fig_cntr.contour(x, y, img_mat, levels=levels, fill_color=Sunset11, line_color="black")
+    # #colorbar = cntr_plot.construct_color_bar()
+    # #fig_cntr.add_layout(colorbar, "right")
+    # fig_cntr.axis.visible = False
+
+    # return {'fig': fig_cntr, 'img': img_plotted, 'mln': mln_plotted, 'txt': txt_plotted, 'mat': img_mat, 'ud': True, 'x': x, 'y': y, 'levels': levels}
+    pass
+
+def updateCntrFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
+    pass
+
 ##################################################################
 #### Distance Vector Figure: do and update
 
@@ -112,14 +192,14 @@ def doDVecFigBokeh(nmrc, odom_in):
 # Set up distance vector figure
 
     fig_dvec    = figure(title="Distance Vector", width=500, height=250, \
-                         x_axis_label = 'Index', y_axis_label = 'Distance', \
-                         x_range = (0, len(odom_in['position']['x'])), y_range = (0, 1.2))
-    
+                            x_axis_label = 'Index', y_axis_label = 'Distance', \
+                            x_range = (0, len(odom_in['position']['x'])), y_range = (0, 1.2))
+    fig_dvec    = disable_toolbar(fig_dvec)
     dvc_plotted = fig_dvec.line([], [], color="black", legend_label="Distances") # distance vector
     mat_plotted = fig_dvec.circle([], [], color="red", size=7, legend_label="Selected") # matched image (lowest distance)
     tru_plotted = fig_dvec.circle([], [], color="magenta", size=7, legend_label="True") # true image (correct match)
 
-    fig_dvec.legend.location= (100, 140)
+    fig_dvec.legend.location=(100, 140)
     fig_dvec.legend.orientation='horizontal'
     fig_dvec.legend.border_line_alpha=0
     fig_dvec.legend.background_fill_alpha=0
@@ -139,13 +219,14 @@ def updateDVecFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
 
 def doOdomFigBokeh(nmrc, odom_in):
 # Set up odometry figure
-    fig_odom            = figure(title="Odometries", width=500, height=250, \
-                                 x_axis_label = 'X-Axis', y_axis_label = 'Y-Axis', \
-                                 match_aspect = True, aspect_ratio = "auto")
+    fig_odom    = figure(title="Odometries", width=500, height=250, \
+                            x_axis_label = 'X-Axis', y_axis_label = 'Y-Axis', \
+                            match_aspect = True, aspect_ratio = "auto")
+    fig_odom    = disable_toolbar(fig_odom)
     
-    ref_plotted    = fig_odom.line(   x=odom_in['position']['x'], y=odom_in['position']['y'], color="blue",   legend_label="Reference")
-    mat_plotted    = fig_odom.cross(  x=[], y=[], color="red",    legend_label="Match", size=12)
-    tru_plotted    = fig_odom.x(      x=[], y=[], color="green",  legend_label="True", size=8)
+    ref_plotted = fig_odom.line(   x=odom_in['position']['x'], y=odom_in['position']['y'], color="blue",   legend_label="Reference")
+    mat_plotted = fig_odom.cross(  x=[], y=[], color="red",    legend_label="Match", size=12)
+    tru_plotted = fig_odom.x(      x=[], y=[], color="green",  legend_label="True", size=8)
 
     fig_odom.legend.location= (100, 70)
     fig_odom.legend.orientation='horizontal'

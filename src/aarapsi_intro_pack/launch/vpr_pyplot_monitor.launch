@@ -1,40 +1,35 @@
 <launch>
-    <arg name="ref_dataset_name" default="s1_ccw_z_230208_o0_e0_32"/>
-    <arg name="cal_qry_dataset_name" default="s1_cw_z_230208_o0_e0_32"/>
-    <arg name="cal_ref_dataset_name" default="s2_cw_z_230222_o0_e1_32"/>
+    <arg name="ref_dataset_name"        default="s1_ccw_z_230208_o0_e0_32"/>
+    <arg name="cal_qry_dataset_name"    default="s1_cw_z_230208_o0_e0_32"/>
+    <arg name="cal_ref_dataset_name"    default="s2_cw_z_230222_o0_e1_32"/>
 
-    <arg name="rate" default="20.0"/>
-    <arg name="node_name" default="vpr_monitor"/>
-    <arg name="anon" default="True"/>
+    <arg name="database_path"           default="$(find aarapsi_intro_pack)/data/compressed_sets"/>
+    <arg name="image_topic_in"          default="/ros_indigosdk_occam/image0"/>
+    <arg name="odometry_topic_in"       default="/odometry/filtered"/>
 
-    <arg name="database_path" default="$(find aarapsi_intro_pack)/data/compressed_sets"/>
-    <arg name="image_topic_in" default="/ros_indigosdk_occam/image0"/>
-    <arg name="odometry_topic_in" default="/odometry/filtered"/>
+    <arg name="rate"                    default="20.0"/>
+    <arg name="node_name"               default="vpr_monitor"/>
+    <arg name="anon"                    default="True"/>
 
-    <arg name="img_dims" default="(64,64)"/>
-    <arg name="ft_type" default="1"/>
+    <arg name="img_dims"                default="(64,64)"/>
+    <arg name="ft_type"                 default="1"/>
 
-    <arg name="tol_mode" default="2"/>
-    <arg name="tol_thresh" default="0.5"/>
+    <arg name="tol_mode"                default="2"/>
+    <arg name="tol_thresh"              default="0.5"/>
 
-    <arg name="compress_in" default="False"/>
-    <arg name="compress_out" default="False"/>
-    <arg name="do_plotting" default="False"/>
-    <arg name="make_images" default="False"/>
-    <arg name="groundtruth" default="False"/>
-    <arg name="make_labels" default="True"/>
+    <arg name="compress_in"             default="False"/>
+    <arg name="compress_out"            default="False"/>
+    <arg name="print_prediction"        default="False"/>
 
-    <arg name="time_history_length" default="20"/>
-    <arg name="icon_info" default="(50,20)"/>
-    <arg name="namespace" default="/vpr_nodes"/>
-    <arg name="frame_id" default="base_link"/>
+    <arg name="namespace"               default="/vpr_nodes"/>
+    <arg name="frame_id"                default="base_link"/>
     
     <node pkg="aarapsi_intro_pack" type="vpr_monitor.py" name="$(arg node_name)" output="screen" 
         args="$(arg ref_dataset_name) $(arg cal_qry_dataset_name) $(arg cal_ref_dataset_name) $(arg database_path)
               $(arg image_topic_in) $(arg odometry_topic_in) 
-              -Ci $(arg compress_in) -Co $(arg compress_out) -P $(arg do_plotting) -I $(arg make_images) -G $(arg groundtruth) -L $(arg make_labels)
-              -r $(arg rate) -l $(arg time_history_length) -i $(arg img_dims) -F $(arg ft_type) 
-              -t $(arg tol_mode) -T $(arg tol_thresh) -p $(arg icon_info) 
+              -Ci $(arg compress_in) -Co $(arg compress_out)
+              -r $(arg rate) -i $(arg img_dims) -F $(arg ft_type) 
+              -t $(arg tol_mode) -T $(arg tol_thresh) -p $(arg print_prediction)
               -N $(arg node_name) -a $(arg anon) -n $(arg namespace) -f $(arg frame_id)">
     </node>
 

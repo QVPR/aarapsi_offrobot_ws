@@ -56,11 +56,14 @@ catkin_python_setup()
 ## Generate messages in the 'msg' folder
 add_message_files(
   FILES
-  LabelDetails.msg
+  Heartbeat.msg
   MonitorDetails.msg
+  LabelDetails.msg
   ImageLabelStamped.msg
   CompressedImageLabelStamped.msg
-  Heartbeat.msg
+  ImageStructure.msg
+  ImageDetails.msg
+  CompressedImageDetails.msg 
 )
 
 ## Generate services in the 'srv' folder
