@@ -12,7 +12,8 @@ import sys
 import cv2
 
 from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped, MonitorDetails, \
-                                    ImageDetails, CompressedImageDetails# Our custom structures
+                                    ImageDetails, CompressedImageDetails, CompressedMonitorDetails# Our custom structures
+from aarapsi_intro_pack.srv import GetSVMField, GetSVMFieldResponse
 from aarapsi_intro_pack import VPRImageProcessor, Tolerance_Mode, FeatureType, grey2dToColourMap
 from aarapsi_intro_pack.vpred import *
 from aarapsi_intro_pack.core.enum_tools import enum_value_options, enum_get
@@ -54,6 +55,7 @@ class mrc: # main ROS class
         self.REF_REF_FOLDER     = ref_ref_folder
 
         self.NAMESPACE          = namespace
+        self.NODENAME           = node_name
         self.FEED_TOPIC         = image_feed_input
         self.ODOM_TOPIC         = odometry_input
 
@@ -64,8 +66,6 @@ class mrc: # main ROS class
         self.COMPRESS_IN        = compress_in
         self.COMPRESS_OUT       = compress_out
 
-        self.ego                = [0.0, 0.0, 0.0] # robot position
-
         self.bridge             = CvBridge() # to convert sensor_msgs/(Compressed)Image to cv2.
 
         if self.COMPRESS_IN:
@@ -73,49 +73,53 @@ class mrc: # main ROS class
             self.in_image_type     = CompressedImage
             self.in_label_type     = CompressedImageLabelStamped
             self.in_img_dets       = CompressedImageDetails
+            self.in_mon_dets       = CompressedMonitorDetails
         else:
             self.in_img_tpc_mode   = ""
             self.in_image_type     = Image
             self.in_label_type     = ImageLabelStamped
             self.in_img_dets       = ImageDetails
+            self.in_mon_dets       = MonitorDetails
 
         if self.COMPRESS_OUT:
             self.out_img_tpc_mode   = "/compressed"
             self.out_image_type     = CompressedImage
             self.out_label_type     = CompressedImageLabelStamped
             self.out_img_dets       = CompressedImageDetails
+            self.out_mon_dets       = CompressedMonitorDetails
         else:
             self.out_img_tpc_mode   = ""
             self.out_image_type     = Image
             self.out_label_type     = ImageLabelStamped
             self.out_img_dets       = ImageDetails
+            self.out_mon_dets       = MonitorDetails
+
 
         # Process reference data (only needs to be done once)
         rospy.logdebug("Loading reference data set...")
         self.ref_ip             = VPRImageProcessor()
-        if not self.ref_ip.npzLoader(self.DATABASE_PATH, self.REF_DATA_NAME):
+        if not self.ref_ip.npzLoader(self.DATABASE_PATH, self.REF_DATA_NAME, self.IMG_DIMS):
             self.exit()
 
         # Process calibration data (only needs to be done once)
         rospy.logdebug("Loading calibration query data set...")
         self.cal_qry_ip             = VPRImageProcessor()
-        if not self.cal_qry_ip.npzLoader(self.DATABASE_PATH, self.CAL_QRY_DATA_NAME):
+        if not self.cal_qry_ip.npzLoader(self.DATABASE_PATH, self.CAL_QRY_DATA_NAME, self.IMG_DIMS):
             self.exit()
         rospy.logdebug("Loading calibration reference data set...")
         self.cal_ref_ip             = VPRImageProcessor()
-        if not self.cal_ref_ip.npzLoader(self.DATABASE_PATH, self.CAL_REF_DATA_NAME):
+        if not self.cal_ref_ip.npzLoader(self.DATABASE_PATH, self.CAL_REF_DATA_NAME, self.IMG_DIMS):
             self.exit()
 
         self.vpr_label_sub      = rospy.Subscriber(self.NAMESPACE + "/label" + self.in_img_tpc_mode, self.in_label_type, self.label_callback, queue_size=1)
-        self.svm_state_pub      = rospy.Publisher(self.NAMESPACE + "/monitor/state", MonitorDetails, queue_size=1)
-        self.svm_field_pub      = rospy.Publisher(self.NAMESPACE + "/monitor/field", self.out_img_dets, queue_size=1)
+        self.svm_state_pub      = rospy.Publisher(self.NAMESPACE + "/monitor/state" + self.in_img_tpc_mode, self.out_mon_dets, queue_size=1)
+        self.svm_field_pub      = rospy.Publisher(self.NAMESPACE + "/monitor/field" + self.in_img_tpc_mode, self.out_img_dets, queue_size=1, latch=True)
 
-        #self.svm_field_timer    = rospy.Timer(rospy.Duration(secs=1), self.svm_field_timer_cb)
+        self.svm_field_srv      = rospy.Service(self.NAMESPACE + '/GetSVMField', GetSVMField, self.handle_GetSVMField)
 
         # flags to denest main loop:
-        self.new_query              = False # new label received
+        self.new_label              = False # new label received
         self.main_ready             = False # ensure pubs and subs don't go off early
-        self.svm_field_pub_flag     = False # rate limiter via timer
 
         self.last_time              = rospy.Time.now()
         self.time_history           = []
@@ -128,26 +132,29 @@ class mrc: # main ROS class
 
         self.main_ready = True
 
-    # def svm_field_timer_cb(self, event):
-    #     self.svm_field_pub_flag = True
+    def handle_GetSVMField(self, req):
+    # /vpr_nodes/GetSVMField service
+        ans = GetSVMFieldResponse()
+        success = True
+
+        try:
+            if req.generate == True:
+                self.generate_svm_mat()
+            self.svm_field_pub.publish(self.SVM_FIELD_MSG)
+        except:
+            success = False
+
+        ans.success = success
+        ans.topic = self.NAMESPACE + "/monitor/field" + self.in_img_tpc_mode
+        rospy.logdebug("Service requested [Gen=%s], Success=%s" % (str(req.generate), str(success)))
+        return ans
 
     def label_callback(self, msg):
     # /vpr_nodes/label(/compressed) (aarapsi_intro_pack/(Compressed)ImageLabelStamped)
     # Store new label message and act as drop-in replacement for odom_callback + img_callback
 
-        self.request            = msg
-
-        if self.request.data.trueId < 0:
-            self.GROUND_TRUTH   = False
-
-        self.ego                = [self.request.data.odom.x, self.request.data.odom.y, self.request.data.odom.z]
-
-        if self.COMPRESS_IN:
-            self.store_query    = self.bridge.compressed_imgmsg_to_cv2(self.request.queryImage, "passthrough")
-        else:
-            self.store_query    = self.bridge.imgmsg_to_cv2(self.request.queryImage, "passthrough")
-
-        self.new_query        = True
+        self.label            = msg
+        self.new_label        = True
 
     def clean_cal_data(self):
         # Goals: 
@@ -159,7 +166,6 @@ class mrc: # main ROS class
         match_min = np.argmin(match_mat, 1) # should have the same number of rows as calqry (but as a vector)
         calref_xy = calref_xy[match_min, :]
         self.features_calref = self.features_calref[match_min, :]
-        diff = np.sqrt(np.sum(np.square(calref_xy - calqry_xy),1))
         self.actual_match_cal = np.arange(len(self.features_calqry))
 
     def calibrate(self):
@@ -200,7 +206,7 @@ class mrc: # main ROS class
 
     def generate_svm_mat(self):
         # Generate decision function matrix:
-        array_dim   = 500 # affects performance with the trade-off on how "nice"/"smooth" it looks
+        array_dim   = 1000 # affects performance with the trade-off on how "nice"/"smooth" it looks
         f1          = np.linspace(0, self.factor1_cal.max(), array_dim)
         f2          = np.linspace(0, self.factor2_cal.max(), array_dim)
         F1, F2      = np.meshgrid(f1, f2)
@@ -221,20 +227,17 @@ class mrc: # main ROS class
         fig.canvas.draw()
 
         # extract matplotlib canvas as an rgb image:
-        img_np_raw_flat = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+        img_np_raw_flat = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
         img_np_raw = img_np_raw_flat.reshape(fig.canvas.get_width_height()[::-1] + (3,))
         plt.close('all')
         img_np = np.flip(img_np_raw, axis=2) # to bgr format, for ROS
 
-        # extract only plot region; ditch padded borders
+        # extract only plot region; ditch padded borders; resize to 1000x1000
         indices_cols = np.arange(img_np.shape[1])[np.sum(np.sum(img_np,2),0) != 255*3*img_np.shape[0]]
         indices_rows = np.arange(img_np.shape[0])[np.sum(np.sum(img_np,2),1) != 255*3*img_np.shape[1]]
         img_np_crop = img_np[min(indices_rows) : max(indices_rows)+1, \
                              min(indices_cols) : max(indices_cols)+1]
-        
-        # keeping aspect ratio, resize up so that the longest side is now 500 pixels:
-        img_new_shape = tuple((np.array(img_np_crop.shape)[0:2] * 500 / max(img_np_crop.shape)).astype(int))
-        img_np_crop_resize = cv2.resize(img_np_crop, img_new_shape, interpolation = cv2.INTER_AREA)
+        img_np_crop_resize = cv2.resize(img_np_crop, (array_dim,array_dim), interpolation = cv2.INTER_AREA)
         
         if self.COMPRESS_OUT:
             ros_img_to_pub = self.bridge.cv2_to_compressed_imgmsg(img_np_crop_resize, "jpg") # jpg (png slower)
@@ -253,22 +256,19 @@ class mrc: # main ROS class
         self.SVM_FIELD_MSG.header.frame_id          = self.FRAME_ID
         self.SVM_FIELD_MSG.header.stamp             = rospy.Time.now()
 
-        self.svm_field_pub.publish(self.SVM_FIELD_MSG)
-        self.svm_field_pub_flag = False
-
 def exit(self):
     rospy.loginfo("Quit received.")
     sys.exit()
 
 def main_loop(nmrc):
 
-    if not (nmrc.new_query and nmrc.main_ready): # denest
-        rospy.loginfo_throttle(60, "Waiting for a new query.") # print every 60 seconds
+    if not (nmrc.new_label and nmrc.main_ready): # denest
+        rospy.loginfo_throttle(60, "[%s] Waiting for a new label." % (nmrc.NODENAME)) # print every 60 seconds
         return
 
-    nmrc.new_query = False
+    nmrc.new_label = False
 
-    sequence = (nmrc.request.data.dvc - nmrc.rmean) / nmrc.rstd # normalise using parameters from the reference set
+    sequence = (nmrc.label.data.dvc - nmrc.rmean) / nmrc.rstd # normalise using parameters from the reference set
     factor1_qry = find_va_factor(np.c_[sequence])
     factor2_qry = find_grad_factor(np.c_[sequence])
     # rt for realtime; still don't know what 'X' and 'y' mean! TODO
@@ -278,10 +278,10 @@ def main_loop(nmrc):
     y_pred_rt = nmrc.model.predict(Xrt_scaled)[0] # Make the prediction: predict whether this match is good or bad
 
     if nmrc.PRINT_PREDICTION:
-        if nmrc.request.data.state == 0:
+        if nmrc.label.data.state == 0:
             rospy.loginfo('integrity prediction: %s', y_pred_rt)
         else:
-            gt_state_bool = bool(nmrc.request.data.state - 1)
+            gt_state_bool = bool(nmrc.label.data.state - 1)
             if y_pred_rt == gt_state_bool:
                 rospy.loginfo('integrity prediction: %r [gt: %r]' % (y_pred_rt, gt_state_bool))
             elif y_pred_rt == False and gt_state_bool == True:
@@ -290,24 +290,20 @@ def main_loop(nmrc):
                 rospy.logerr('integrity prediction: %r [gt: %r]' % (y_pred_rt, gt_state_bool))
 
     # Populate and publish SVM State details
-    ros_msg                 = MonitorDetails()
+    ros_msg                 = nmrc.out_mon_dets()
+    ros_msg.queryImage      = nmrc.label.queryImage
     ros_msg.header.stamp    = rospy.Time.now()
     ros_msg.header.frame_id	= str(nmrc.FRAME_ID)
-    ros_msg.matchId	        = nmrc.request.data.matchId# Index of VPR match
-    ros_msg.trueId	        = nmrc.request.data.trueId# Index ground truth thinks is best (-1 if no groundtruth)
-    ros_msg.state	        = nmrc.request.data.state# int matching 0: unknown, 1: bad, 2: good
+    ros_msg.data            = nmrc.label.data
     ros_msg.mState	        = 0.0# Continuous monitor state estimate 
     ros_msg.prob	        = 0.0# Monitor probability estimate
     ros_msg.mStateBin       = y_pred_rt# Binary monitor state estimate
-    ros_msg.fieldUpdate     = nmrc.svm_field_pub_flag # Whether or not an SVM field update is needed
+    ros_msg.factors         = [factor1_qry, factor2_qry]
 
     nmrc.svm_state_pub.publish(ros_msg)
-    if nmrc.svm_field_pub_flag:
-        nmrc.svm_field_pub.publish(nmrc.SVM_FIELD_MSG)
-        nmrc.svm_field_pub_flag = False
 
 def do_args():
-    parser = ap.ArgumentParser(prog="vpr_monitor", 
+    parser = ap.ArgumentParser(prog="vpr_monitor.py", 
                                 description="ROS implementation of Helen Carson's Integrity Monitor, for integration with QVPR's VPR Primer",
                                 epilog="Maintainer: Owen Claxton (claxtono@qut.edu.au)")
     

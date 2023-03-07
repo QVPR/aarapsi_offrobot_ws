@@ -57,21 +57,21 @@ catkin_python_setup()
 add_message_files(
   FILES
   Heartbeat.msg
-  MonitorDetails.msg
   LabelDetails.msg
+  ImageStructure.msg
+  MonitorDetails.msg
+  CompressedMonitorDetails.msg
   ImageLabelStamped.msg
   CompressedImageLabelStamped.msg
-  ImageStructure.msg
   ImageDetails.msg
   CompressedImageDetails.msg 
 )
 
 ## Generate services in the 'srv' folder
-# add_service_files(
-#   FILES
-#   Service1.srv
-#   Service2.srv
-# )
+add_service_files(
+  FILES
+  GetSVMField.srv
+)
 
 ## Generate actions in the 'action' folder
 # add_action_files(

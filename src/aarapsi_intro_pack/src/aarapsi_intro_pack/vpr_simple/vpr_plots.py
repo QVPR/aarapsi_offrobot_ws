@@ -1,8 +1,10 @@
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 from bokeh.plotting import figure
-from bokeh.palettes import Sunset11
-from bokeh.models import ColumnDataSource
+from bokeh.palettes import Sunset11, Viridis256
+from bokeh.models import ColumnDataSource, Range1d
 import cv2
 
 #   _____       _____  _       _   
@@ -155,35 +157,65 @@ def get_contour_data(X, Y, Z, levels):
 ##################################################################
 #### Contour Figure: do and update
 
-def doCntrFigBokeh(nmrc, odom_in, img_mat=None):
+def doCntrFigBokeh(nmrc, odom_in):
 # Set up contour figure
-    # TODO: add lines https://stackoverflow.com/questions/33533047/how-to-make-a-contour-plot-in-python-using-bokeh-or-other-libs
-    # fig_cntr    = figure(title="SVM Contour", width=250, height=250, \
-    #                         x_axis_label = 'VA Factor', y_axis_label = 'Grad Factor', \
-    #                         x_range = (0, 500), y_range = (0, 500))
-    # fig_cntr    = disable_toolbar(fig_cntr)
 
-    # if (img_mat is None):
-    #     img_mat     = np.random.rand(500,500)
-    # x, y        = np.meshgrid(np.arange(img_mat.shape[1]), np.arange(img_mat.shape[0]))
-    # levels      = np.linspace(0,1,11) # num levels = 11 (between 0 and 1)
-    # source      = get_contour_data(x, y, img_mat, levels)
+    fig_cntr        = figure(title="SVM Contour", width=500, height=500, \
+                            x_axis_label = 'VA Factor', y_axis_label = 'Grad Factor')
 
-    # img_plotted = fig_cntr.image([img_mat])
-    # mln_plotted = fig_cntr.multi_line(xs='xs', ys='ys', line_color='line_color', source=source)
-    # txt_plotted = fig_cntr.text(x='xt',y='yt',text='text',source=source,text_baseline='middle',text_align='center')
+    fig_cntr        = disable_toolbar(fig_cntr)
 
-    # # https://docs.bokeh.org/en/dev-3.0/docs/user_guide/specialized/contour.html
-    # #img_plotted = fig_cntr.contour(x, y, img_mat, levels=levels, fill_color=Sunset11, line_color="black")
-    # #colorbar = cntr_plot.construct_color_bar()
-    # #fig_cntr.add_layout(colorbar, "right")
-    # fig_cntr.axis.visible = False
+    img_rand        = np.array(np.ones((1000,1000,4))*255, dtype=np.uint8)
+    img_uint32      = img_rand.view(dtype=np.uint32).reshape(img_rand.shape[:-1])
+    data_dict       = dict(image=[img_uint32], x=[0], y=[0], dw=[10], dh=[10])
+    img_ds          = ColumnDataSource(data=data_dict) #CDS must contain columns, hence []
+    img_plotted     = fig_cntr.image_rgba(image='image', x='x', y='y', dw='dw', dh='dh', source=img_ds)
+    out_plotted     = fig_cntr.circle(x=[], y=[], color="red", size=7, legend_label="Out of Tolerance")
+    in_plotted      = fig_cntr.circle(x=[], y=[], color="green", size=7, legend_label="In Tolerance")
 
-    # return {'fig': fig_cntr, 'img': img_plotted, 'mln': mln_plotted, 'txt': txt_plotted, 'mat': img_mat, 'ud': True, 'x': x, 'y': y, 'levels': levels}
-    pass
+    fig_cntr.x_range.range_padding = 0
+    fig_cntr.y_range.range_padding = 0
+
+    return {'fig': fig_cntr, 'img': img_plotted, 'in': in_plotted, 'out': out_plotted}
 
 def updateCntrFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
-    pass
+
+    xlims = (np.min(nmrc.svm_field_msg.data.xlim), np.max(nmrc.svm_field_msg.data.xlim))
+    ylims = (np.min(nmrc.svm_field_msg.data.ylim), np.max(nmrc.svm_field_msg.data.ylim))
+
+    f1_clip = np.clip(nmrc.state.factors[0], xlims[0], xlims[1])
+    f2_clip = np.clip(nmrc.state.factors[1], ylims[0], ylims[1])
+
+    to_stream = dict(x=[f1_clip], y=[f2_clip])
+    if nmrc.state.mStateBin:
+        nmrc.fig_cntr_handles['in'].data_source.stream(to_stream, rollover = 50)
+    else:
+        nmrc.fig_cntr_handles['out'].data_source.stream(to_stream, rollover = 50)
+
+    if not nmrc.new_field:
+        return
+    
+    ros_msg_img = nmrc.svm_field_msg.image
+    if nmrc.COMPRESS_IN:
+        cv_msg_img = nmrc.bridge.compressed_imgmsg_to_cv2(ros_msg_img, "passthrough")
+    else:
+        cv_msg_img = nmrc.bridge.imgmsg_to_cv2(ros_msg_img, "passthrough")
+
+    # process image from three layer (rgb) into four layer (rgba) uint8:
+    img_rgba = np.array(np.dstack((np.flipud(np.flip(cv_msg_img,2)), np.ones((1000,1000))*255)), dtype=np.uint8)
+    # collapse into uint32:
+    img_uint32 = img_rgba.view(dtype=np.uint32).reshape(img_rgba.shape[:-1])
+
+    nmrc.fig_cntr_handles['img'].data_source.data = dict(x=[xlims[0]], y=[ylims[0]], dw=[xlims[1] - xlims[0]], \
+                                                         dh=[ylims[1] - ylims[0]], image=[img_uint32.copy()])
+
+    nmrc.fig_cntr_handles['fig'].title.text         = nmrc.svm_field_msg.data.title
+    nmrc.fig_cntr_handles['fig'].xaxis.axis_label   = nmrc.svm_field_msg.data.xlab
+    nmrc.fig_cntr_handles['fig'].yaxis.axis_label   = nmrc.svm_field_msg.data.ylab
+    nmrc.fig_cntr_handles['fig'].x_range            = Range1d(xlims[0], xlims[1])
+    nmrc.fig_cntr_handles['fig'].y_range            = Range1d(ylims[0], ylims[1])
+
+    nmrc.new_field = False
 
 ##################################################################
 #### Distance Vector Figure: do and update
