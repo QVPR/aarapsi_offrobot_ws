@@ -191,7 +191,6 @@ class VPRImageProcessor: # main ROS class
         separator = ""
         if not (database_path[-1] == "/"):
             separator = "/"
-        ext_mode = ""
         # gemerate new full path to save to:
         filename_extended = database_path + separator + filename + "_%dx" % (self.IMG_DIMS[0])
         if not (self.IMG_DIMS[0] == self.IMG_DIMS[1]):
