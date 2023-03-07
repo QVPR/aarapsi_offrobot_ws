@@ -193,9 +193,9 @@ class VPRImageProcessor: # main ROS class
             separator = "/"
         ext_mode = ""
         # gemerate new full path to save to:
-        filename_extended = database_path + separator + filename + "_%d" % (self.IMG_DIMS[0])
+        filename_extended = database_path + separator + filename + "_%dx" % (self.IMG_DIMS[0])
         if not (self.IMG_DIMS[0] == self.IMG_DIMS[1]):
-            filename_extended = filename_extended + "_%d" % (self.IMG_DIMS[1])
+            filename_extended = filename_extended + "%d" % (self.IMG_DIMS[1])
         full_file_path = filename_extended + ".npz"
         # perform save to compressed numpy file:
         try:
@@ -254,13 +254,20 @@ class VPRImageProcessor: # main ROS class
         except Exception as e:
             raise Exception("[_npzLoader] Error: %s" % (e))
 
-    def npzLoader(self, database_path, filename):
+    def npzLoader(self, database_path, filename, img_dims):
     # Public method. Specify directory path containing .npz file (database_path) and the filename (or an incomplete but unique file prefix)
         try:
-            dict_keys, imgs_keys, odom_keys = self._npzLoader(database_path, filename)
-            self.print("[npzLoader] Success. Data found with keys: \n\t%s" % (dict_keys), State.INFO)
-            self.print("[npzLoader] Image dictionary contains keys: \n\t%s" % (imgs_keys), State.INFO)
-            self.print("[npzLoader] Odometry dictionary contains keys: \n\t%s" % (odom_keys), State.INFO)
+
+            while 'x' in filename.split('_')[-1]: # clean image size off end
+                filename = filename[0:-1-len(filename.split('_')[-1])]
+            filename_extended = filename + "_%dx" % (img_dims[0])
+            if not (self.IMG_DIMS[0] == self.IMG_DIMS[1]):
+                filename_extended = filename_extended + "%d" % (img_dims[1])
+
+            dict_keys, imgs_keys, odom_keys = self._npzLoader(database_path, filename_extended)
+            self.print("[npzLoader] Success. Data found with keys: \n\t%s" % (dict_keys), State.DEBUG)
+            self.print("[npzLoader] Image dictionary contains keys: \n\t%s" % (imgs_keys), State.DEBUG)
+            self.print("[npzLoader] Odometry dictionary contains keys: \n\t%s" % (odom_keys), State.DEBUG)
             return True
         except Exception as e:
             self.print("[npzLoader] Load failed. Check path and file name is correct.\nCode: %s" % (e), State.ERROR)
@@ -271,12 +278,8 @@ class VPRImageProcessor: # main ROS class
     # database_path, filename as per npzLoader.
     # img_paths, odom_path, feat_type, and img_dims as per loadFull
     # do_save=True enables saving for fast loading (with directory/filename specified by database_path and filename respectively)
-        
-        filename_extended = filename + "_%d" % (img_dims[0])
-        if not (self.IMG_DIMS[0] == self.IMG_DIMS[1]):
-            filename_extended = filename_extended + "_%d" % (img_dims[1])
 
-        if not self.npzLoader(database_path, filename_extended):
+        if not self.npzLoader(database_path, filename, img_dims):
             self.print("[npzDatabaseLoadSave] Fast load failed. Building normally.", State.WARN)
             self.SET_DICT = self.loadFull(img_paths, odom_path, feat_type, img_dims)
             if not len(self.SET_DICT):

@@ -3,6 +3,7 @@ import time
 import rospy
 import sys
 import traceback
+import numpy as np
 
 class Timer:
     def __init__(self,rospy_on=False):
@@ -57,3 +58,13 @@ def formatException():
             traceback_string += " >> "
     return "Exception Caught.\n\tDetails: %s %s\n\tFile %s [Line %s]\n\tTrace: %s" \
         % (str(exception_type), str(e), str(filename), str(line_number), traceback_string)
+
+def getArrayDetails(arr):
+    _shape  = str(np.shape(arr))
+    _type   = str(type((arr.flatten())[0]))
+    _min    = str(np.min(arr))
+    _max    = str(np.max(arr))
+    _mean   = str(np.mean(arr))
+    _range  = str(np.max(arr) - np.min(arr))
+    string_to_ret = "%s%s %s<%s<%s [%s]" % (_shape, _type, _min, _mean, _max, _range)
+    return string_to_ret
