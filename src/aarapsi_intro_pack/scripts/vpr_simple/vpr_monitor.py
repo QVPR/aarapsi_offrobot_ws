@@ -14,13 +14,10 @@ import cv2
 from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped, MonitorDetails, \
                                     ImageDetails, CompressedImageDetails, CompressedMonitorDetails# Our custom structures
 from aarapsi_intro_pack.srv import GetSVMField, GetSVMFieldResponse
-from aarapsi_intro_pack import VPRImageProcessor, Tolerance_Mode, FeatureType, grey2dToColourMap
+from aarapsi_intro_pack import VPRImageProcessor, SVMModelProcessor, Tolerance_Mode, FeatureType
 from aarapsi_intro_pack.vpred import *
 from aarapsi_intro_pack.core.enum_tools import enum_value_options, enum_get
-from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_positive_two_int_tuple, check_positive_int, check_bool
-
-from sklearn import svm
-from sklearn.preprocessing import StandardScaler
+from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_positive_two_int_tuple, check_bool
 
 class mrc: # main ROS class
     def __init__(self, ref_dataset_name, cal_qry_dataset_name, cal_ref_dataset_name, database_path, image_feed_input, odometry_input, \
@@ -28,7 +25,7 @@ class mrc: # main ROS class
                     rate_num=20.0, ft_type=FeatureType.RAW, img_dims=(64,64), \
                     tolerance_threshold=5.0, tolerance_mode=Tolerance_Mode.METRE_LINE, \
                     namespace="/vpr_nodes", node_name='vpr_monitor', anon=True, frame_id='base_link', \
-                    cal_qry_folder='forward', cal_ref_folder='forward', ref_ref_folder='forward', \
+                    cal_folder='forward', ref_folder='forward', \
                     print_prediction=True,\
                 ):
 
@@ -50,9 +47,8 @@ class mrc: # main ROS class
         self.CAL_QRY_DATA_NAME  = cal_qry_dataset_name
         self.CAL_REF_DATA_NAME  = cal_ref_dataset_name
 
-        self.CAL_QRY_FOLDER     = cal_qry_folder
-        self.CAL_REF_FOLDER     = cal_ref_folder
-        self.REF_REF_FOLDER     = ref_ref_folder
+        self.CAL_FOLDER         = cal_folder
+        self.REF_FOLDER         = ref_folder
 
         self.NAMESPACE          = namespace
         self.NODENAME           = node_name
@@ -66,20 +62,20 @@ class mrc: # main ROS class
         self.COMPRESS_IN        = compress_in
         self.COMPRESS_OUT       = compress_out
 
-        self.bridge             = CvBridge() # to convert sensor_msgs/(Compressed)Image to cv2.
+        self.bridge                 = CvBridge() # to convert sensor_msgs/(Compressed)Image to cv2.
 
         if self.COMPRESS_IN:
-            self.in_img_tpc_mode   = "/compressed"
-            self.in_image_type     = CompressedImage
-            self.in_label_type     = CompressedImageLabelStamped
-            self.in_img_dets       = CompressedImageDetails
-            self.in_mon_dets       = CompressedMonitorDetails
+            self.in_img_tpc_mode    = "/compressed"
+            self.in_image_type      = CompressedImage
+            self.in_label_type      = CompressedImageLabelStamped
+            self.in_img_dets        = CompressedImageDetails
+            self.in_mon_dets        = CompressedMonitorDetails
         else:
-            self.in_img_tpc_mode   = ""
-            self.in_image_type     = Image
-            self.in_label_type     = ImageLabelStamped
-            self.in_img_dets       = ImageDetails
-            self.in_mon_dets       = MonitorDetails
+            self.in_img_tpc_mode    = ""
+            self.in_image_type      = Image
+            self.in_label_type      = ImageLabelStamped
+            self.in_img_dets        = ImageDetails
+            self.in_mon_dets        = MonitorDetails
 
         if self.COMPRESS_OUT:
             self.out_img_tpc_mode   = "/compressed"
@@ -97,25 +93,14 @@ class mrc: # main ROS class
 
         # Process reference data (only needs to be done once)
         rospy.logdebug("Loading reference data set...")
-        self.ref_ip             = VPRImageProcessor()
+        self.ref_ip                 = VPRImageProcessor()
         if not self.ref_ip.npzLoader(self.DATABASE_PATH, self.REF_DATA_NAME, self.IMG_DIMS):
             self.exit()
 
-        # Process calibration data (only needs to be done once)
-        rospy.logdebug("Loading calibration query data set...")
-        self.cal_qry_ip             = VPRImageProcessor()
-        if not self.cal_qry_ip.npzLoader(self.DATABASE_PATH, self.CAL_QRY_DATA_NAME, self.IMG_DIMS):
-            self.exit()
-        rospy.logdebug("Loading calibration reference data set...")
-        self.cal_ref_ip             = VPRImageProcessor()
-        if not self.cal_ref_ip.npzLoader(self.DATABASE_PATH, self.CAL_REF_DATA_NAME, self.IMG_DIMS):
-            self.exit()
-
-        self.vpr_label_sub      = rospy.Subscriber(self.NAMESPACE + "/label" + self.in_img_tpc_mode, self.in_label_type, self.label_callback, queue_size=1)
-        self.svm_state_pub      = rospy.Publisher(self.NAMESPACE + "/monitor/state" + self.in_img_tpc_mode, self.out_mon_dets, queue_size=1)
-        self.svm_field_pub      = rospy.Publisher(self.NAMESPACE + "/monitor/field" + self.in_img_tpc_mode, self.out_img_dets, queue_size=1, latch=True)
-
-        self.svm_field_srv      = rospy.Service(self.NAMESPACE + '/GetSVMField', GetSVMField, self.handle_GetSVMField)
+        self.vpr_label_sub          = rospy.Subscriber(self.NAMESPACE + "/label" + self.in_img_tpc_mode, self.in_label_type, self.label_callback, queue_size=1)
+        self.svm_state_pub          = rospy.Publisher(self.NAMESPACE + "/monitor/state" + self.in_img_tpc_mode, self.out_mon_dets, queue_size=1)
+        self.svm_field_pub          = rospy.Publisher(self.NAMESPACE + "/monitor/field" + self.in_img_tpc_mode, self.out_img_dets, queue_size=1, latch=True)
+        self.svm_field_srv          = rospy.Service(self.NAMESPACE + '/GetSVMField', GetSVMField, self.handle_GetSVMField)
 
         # flags to denest main loop:
         self.new_label              = False # new label received
@@ -126,9 +111,11 @@ class mrc: # main ROS class
 
         self.states                 = [0,0,0]
 
-        self.calibrate()
-        self.train()
-        self.generate_svm_mat()
+        # Set up SVM
+        self.svm_model_params       = dict(ref=self.CAL_REF_DATA_NAME, qry=self.CAL_QRY_DATA_NAME, img_dims=self.IMG_DIMS, \
+                                           folder=self.CAL_FOLDER, database_path=self.DATABASE_PATH)
+        self.svm_model_dir          = rospkg.RosPack().get_path(rospkg.get_package_name(os.path.abspath(__file__))) + "/cfg/svm_models"
+        self.svm                    = SVMModelProcessor(self.svm_model_dir, model=self.svm_model_params)
 
         self.main_ready = True
 
@@ -156,80 +143,10 @@ class mrc: # main ROS class
         self.label            = msg
         self.new_label        = True
 
-    def clean_cal_data(self):
-        # Goals: 
-        # 1. Reshape calref to match length of calqry
-        # 2. Reorder calref to match 1:1 indices with calqry
-        calqry_xy = np.transpose(np.stack((self.odom_calqry['position']['x'],self.odom_calqry['position']['y'])))
-        calref_xy = np.transpose(np.stack((self.odom_calref['position']['x'],self.odom_calref['position']['y'])))
-        match_mat = np.sum((calqry_xy[:,np.newaxis] - calref_xy)**2, 2)
-        match_min = np.argmin(match_mat, 1) # should have the same number of rows as calqry (but as a vector)
-        calref_xy = calref_xy[match_min, :]
-        self.features_calref = self.features_calref[match_min, :]
-        self.actual_match_cal = np.arange(len(self.features_calqry))
-
-    def calibrate(self):
-        self.features_calqry                = np.array(self.cal_qry_ip.SET_DICT['img_feats'][self.CAL_QRY_FOLDER])
-        self.features_calref                = np.array(self.cal_ref_ip.SET_DICT['img_feats'][self.CAL_REF_FOLDER])
-        self.odom_calqry                    = self.cal_qry_ip.SET_DICT['odom']
-        self.odom_calref                    = self.cal_ref_ip.SET_DICT['odom']
-        self.clean_cal_data()
-        self.Scal, self.rmean, self.rstd    = create_normalised_similarity_matrix(self.features_calref, self.features_calqry)
-
-    def train(self):
-        # We define the acceptable tolerance for a 'correct' match as +/- one image frame:
-        self.tolerance      = 10
-
-        # Extract factors that describe the "sharpness" of distance vectors
-        self.factor1_cal    = find_va_factor(self.Scal)
-        self.factor2_cal    = find_grad_factor(self.Scal)
-        self.factors        = ['VA ratio', 'Average Gradient'] # for axis labels when plotting
-
-        # Form input vector
-        self.Xcal           = np.c_[self.factor1_cal, self.factor2_cal]
-        self.scaler         = StandardScaler()
-        self.Xcal_scaled    = self.scaler.fit_transform(self.Xcal)
-        
-        # Form desired output vector
-        self.y_cal          = find_y(self.Scal, self.actual_match_cal, self.tolerance)
-
-        # Define and train the Support Vector Machine
-        self.model          = svm.SVC(kernel='rbf', C=1, gamma='scale', class_weight='balanced', probability=True)
-        self.model.fit(self.Xcal_scaled, self.y_cal)
-
-        # Make predictions on calibration set to assess performance
-        self.y_pred_cal     = self.model.predict(self.Xcal_scaled)
-        self.y_zvalues_cal  = self.model.decision_function(self.Xcal_scaled)
-
-        rospy.loginfo('Performance of prediction on Calibration set: ')
-        find_prediction_performance_metrics(self.y_pred_cal, self.y_cal, verbose=True)
-
     def generate_svm_mat(self):
-        # Generate decision function matrix:
-        array_dim   = 1000 # affects performance with the trade-off on how "nice"/"smooth" it looks
-        f1          = np.linspace(0, self.factor1_cal.max(), array_dim)
-        f2          = np.linspace(0, self.factor2_cal.max(), array_dim)
-        F1, F2      = np.meshgrid(f1, f2)
-        Fscaled     = self.scaler.transform(np.vstack([F1.ravel(), F2.ravel()]).T)
-        y_zvalues_t = self.model.decision_function(Fscaled).reshape([array_dim, array_dim])
-
-        fig, ax = plt.subplots()
-        ax.imshow(y_zvalues_t, origin='lower',extent=[0, f1[-1], 0, f2[-1]], aspect='auto')
-        z_contour = ax.contour(F1, F2, y_zvalues_t, levels=[0], colors='red')
-        p_contour = ax.contour(F1, F2, y_zvalues_t, levels=[0.75])
-        ax.clabel(p_contour, inline=True, fontsize=8)
-        x_lim = [0, self.factor1_cal.max()]
-        y_lim = [0, self.factor2_cal.max()]
-        ax.set_xlim(x_lim)
-        ax.set_ylim(y_lim)
-        ax.set_box_aspect(1)
-        ax.axis('off')
-        fig.canvas.draw()
-
-        # extract matplotlib canvas as an rgb image:
-        img_np_raw_flat = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-        img_np_raw = img_np_raw_flat.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-        plt.close('all')
+        # Generate decision function matrix for ros:
+        array_dim = 1000
+        (img_np_raw, (x_lim, y_lim)) = self.svm.generate_svm_mat(array_dim)
         img_np = np.flip(img_np_raw, axis=2) # to bgr format, for ROS
 
         # extract only plot region; ditch padded borders; resize to 1000x1000
@@ -237,7 +154,7 @@ class mrc: # main ROS class
         indices_rows = np.arange(img_np.shape[0])[np.sum(np.sum(img_np,2),1) != 255*3*img_np.shape[1]]
         img_np_crop = img_np[min(indices_rows) : max(indices_rows)+1, \
                              min(indices_cols) : max(indices_cols)+1]
-        img_np_crop_resize = cv2.resize(img_np_crop, (array_dim,array_dim), interpolation = cv2.INTER_AREA)
+        img_np_crop_resize = cv2.resize(img_np_crop, (array_dim, array_dim), interpolation = cv2.INTER_AREA)
         
         if self.COMPRESS_OUT:
             ros_img_to_pub = self.bridge.cv2_to_compressed_imgmsg(img_np_crop_resize, "jpg") # jpg (png slower)
@@ -250,8 +167,8 @@ class mrc: # main ROS class
         self.SVM_FIELD_MSG.image.header.stamp       = rospy.Time.now()
         self.SVM_FIELD_MSG.data.xlim                = x_lim
         self.SVM_FIELD_MSG.data.ylim                = y_lim
-        self.SVM_FIELD_MSG.data.xlab                = self.factors[0]
-        self.SVM_FIELD_MSG.data.ylab                = self.factors[1]
+        self.SVM_FIELD_MSG.data.xlab                = self.svm.factors[0]
+        self.SVM_FIELD_MSG.data.ylab                = self.svm.factors[1]
         self.SVM_FIELD_MSG.data.title               = 'SVM Decision Function'
         self.SVM_FIELD_MSG.header.frame_id          = self.FRAME_ID
         self.SVM_FIELD_MSG.header.stamp             = rospy.Time.now()
@@ -267,15 +184,7 @@ def main_loop(nmrc):
         return
 
     nmrc.new_label = False
-
-    sequence = (nmrc.label.data.dvc - nmrc.rmean) / nmrc.rstd # normalise using parameters from the reference set
-    factor1_qry = find_va_factor(np.c_[sequence])
-    factor2_qry = find_grad_factor(np.c_[sequence])
-    # rt for realtime; still don't know what 'X' and 'y' mean! TODO
-    Xrt = np.c_[factor1_qry, factor2_qry]      # put the two factors into a 2-column vector
-    Xrt_scaled = nmrc.scaler.transform(Xrt)  # perform scaling using same parameters as calibration set
-    y_zvalues_rt = nmrc.model.decision_function(Xrt_scaled) # not sure what this is just yet TODO
-    y_pred_rt = nmrc.model.predict(Xrt_scaled)[0] # Make the prediction: predict whether this match is good or bad
+    (y_pred_rt, y_zvalues_rt, [factor1_qry, factor2_qry]) = nmrc.svm.predict(nmrc.label.data.dvc)
 
     if nmrc.PRINT_PREDICTION:
         if nmrc.label.data.state == 0:
@@ -295,8 +204,8 @@ def main_loop(nmrc):
     ros_msg.header.stamp    = rospy.Time.now()
     ros_msg.header.frame_id	= str(nmrc.FRAME_ID)
     ros_msg.data            = nmrc.label.data
-    ros_msg.mState	        = 0.0# Continuous monitor state estimate 
-    ros_msg.prob	        = 0.0# Monitor probability estimate
+    ros_msg.mState	        = y_zvalues_rt # Continuous monitor state estimate 
+    ros_msg.prob	        = 0.0 # Monitor probability estimate
     ros_msg.mStateBin       = y_pred_rt# Binary monitor state estimate
     ros_msg.factors         = [factor1_qry, factor2_qry]
 

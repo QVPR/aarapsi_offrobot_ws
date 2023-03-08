@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import rospy # comment this out if no ROS
 import numpy as np
 import os
 import cv2
@@ -31,27 +30,25 @@ class VPRImageProcessor: # main ROS class
         self.clearImageVariables()
         self.clearOdomVariables()
 
-    # def print(self, text, state):
-    # # Print function helper
-    # # For use with no 'import rospy'
-    #     print(state.value + " " + text)
-
     def print(self, text, state):
     # Print function helper
     # For use with integration with ROS
-        if rospy.core.is_initialized(): # if used inside of a running ROS node
-            if state == State.DEBUG:
-                rospy.logdebug(text)
-            elif state == State.INFO:
-                rospy.loginfo(text)
-            elif state == State.WARN:
-                rospy.logwarn(text)
-            elif state == State.ERROR:
-                rospy.logerr(text)
-            elif state == State.FATAL:
-                rospy.logfatal(text)
-        else:
-            print(state.value + " " + text)
+        try:
+            if rospy.core.is_initialized(): # if used inside of a running ROS node
+                if state == State.DEBUG:
+                    rospy.logdebug(text)
+                elif state == State.INFO:
+                    rospy.loginfo(text)
+                elif state == State.WARN:
+                    rospy.logwarn(text)
+                elif state == State.ERROR:
+                    rospy.logerr(text)
+                elif state == State.FATAL:
+                    rospy.logfatal(text)
+            else:
+                raise Exception
+        except:
+            print(state.value + " " + str(text))
 
     def buildFullDictionary(self):
         self.SET_DICT = {'img_feats': self.IMG_FEATS, \
@@ -216,7 +213,7 @@ class VPRImageProcessor: # main ROS class
             pass
         elif not (ext == ".npz"):
             raise Exception("[_npzLoader] File is not of type .npz!")
-        # gemerate new full path to save to:\
+        # gemerate new full path to save to:
         file_found = False
         for entry in os.scandir(database_path):
             if entry.is_file() and entry.name.startswith(filename):
