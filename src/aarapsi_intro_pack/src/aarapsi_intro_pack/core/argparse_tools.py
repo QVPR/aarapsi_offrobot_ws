@@ -66,3 +66,18 @@ def check_str_list(value):
         return str_value_list
     except:
         raise ap.ArgumentTypeError(error_text)
+    
+def check_valid_ip(value):
+    error_text = "%s is an invalid ip address." % (str(value))
+    ip_raw = str(value)
+    if ip_raw == 'localhost':
+        return ip_raw
+    ip_slice = ip_raw.split('.')
+    if not len(ip_slice) == 4:
+        raise ap.ArgumentTypeError(error_text)
+    for num in ip_slice:
+        try:
+            int(num)
+        except:
+            raise ap.ArgumentTypeError(error_text)
+    return ip_raw

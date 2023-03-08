@@ -15,7 +15,7 @@ from aarapsi_intro_pack.srv import GetSVMField, GetSVMFieldRequest, GetSVMFieldR
 from aarapsi_intro_pack import VPRImageProcessor, FeatureType, \
     doDVecFigBokeh, doOdomFigBokeh, doCntrFigBokeh, updateDVecFigBokeh, updateOdomFigBokeh, updateCntrFigBokeh
 
-from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_bool, check_positive_two_int_tuple
+from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_bool, check_positive_two_int_tuple, check_positive_int, check_valid_ip
 from aarapsi_intro_pack.core.helper_tools import formatException, getArrayDetails
 
 from functools import partial
@@ -80,8 +80,8 @@ class mrc: # main ROS class
         iframe_start          = """<iframe src="http://131.181.33.60:8080/stream?topic="""
         iframe_end_rect       = """&type=ros_compressed" width=2000 height=1000 style="border: 0; transform: scale(0.5); transform-origin: 0 0;"/>"""
         iframe_end_even       = """&type=ros_compressed" width=510 height=510 style="border: 0; transform: scale(0.49); transform-origin: 0 0;"/>"""
-        self.fig_iframe_feed_ = Div(text=iframe_start + """/vpr_nodes/image""" + iframe_end_rect, width=500, height=250)
-        self.fig_iframe_mtrx_ = Div(text=iframe_start + """/vpr_nodes/matrices/rolling""" + iframe_end_even, width=250, height=250)
+        self.fig_iframe_feed_ = Div(text=iframe_start + self.NAMESPACE + "/image" + iframe_end_rect, width=500, height=250)
+        self.fig_iframe_mtrx_ = Div(text=iframe_start + self.NAMESPACE + "/matrices/rolling" + iframe_end_even, width=250, height=250)
         self.rolling_mtrx_img = np.zeros((len(self.ref_dict['odom']['position']['x']), len(self.ref_dict['odom']['position']['x']))) # Make similarity matrix figure
         
         rospy.loginfo('[Bokeh Server] Waiting for services ...')
@@ -211,10 +211,15 @@ def main(doc):
         exit()
 
 if __name__ == '__main__':
-    os.environ['BOKEH_ALLOW_WS_ORIGIN'] = '0.0.0.0:5006,131.181.33.60:5006'
+    os.environ['BOKEH_ALLOW_WS_ORIGIN'] = '0.0.0.0,131.181.33.60'
+
+    parser_server = ap.ArgumentParser()
+    parser_server.add_argument('--port', '-P', type=check_positive_int, default=5006, help='Set bokeh server port  (default: %(default)s).')
+    parser_server.add_argument('--address', '-A', type=check_valid_ip, default='0.0.0.0', help='Set bokeh server address (default: %(default)s).')
+    server_vars = vars(parser_server.parse_known_args()[0])
 
     port=5006
-    server = Server({'/': main}, num_procs=1, address='0.0.0.0', port=port)
+    server = Server({'/': main}, num_procs=1, address=server_vars['address'], port=server_vars['port'])
     server.start()
 
     #print('Opening Bokeh application on http://localhost' + str(port))
