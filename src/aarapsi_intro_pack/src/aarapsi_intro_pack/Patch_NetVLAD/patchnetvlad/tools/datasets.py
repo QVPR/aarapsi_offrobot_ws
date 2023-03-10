@@ -58,9 +58,15 @@ class PlaceDataset(data.Dataset):
 
         self.queries, self.database, self.numQ, self.numDb, self.utmQ, self.utmDb, self.posDistThr = None, None, None, None, None, None, None
         if query_file_path is not None:
-            self.queries, self.numQ = self.parse_text_file(query_file_path)
+            # self.queries, self.numQ = self.parse_text_file(query_file_path)
+            print('Using query_file_path')
+            self.queries = query_file_path
+            self.numQ = len(query_file_path)
         if index_file_path is not None:
-            self.database, self.numDb = self.parse_text_file(index_file_path)
+            # self.database, self.numDb = self.parse_text_file(index_file_path)
+            print('Using index_file_path')
+            self.database = index_file_path
+            self.numDb = len(index_file_path)
         if ground_truth_path is not None:
             self.utmQ, self.utmDb, self.posDistThr = self.parse_gt_file(ground_truth_path)
         if posDistThr is not None:

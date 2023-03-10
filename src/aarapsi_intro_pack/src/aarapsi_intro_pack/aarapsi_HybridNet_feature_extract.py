@@ -8,6 +8,7 @@ import scipy.io
 import string
 import sys
 import os
+from PIL import Image
 
 def load_HybridNet():
 
@@ -69,10 +70,12 @@ def HybridNet_ref_extract(net, transformer, datasetPath):
     lst_images = [f for f in lst_images if '.png' in f or '.jpg' in f]
     feats = []
     for img in lst_images:
-        imData = caffe.io.load_image(os.path.join(datasetPath,img))#[:800,:,:]
+        # imData = caffe.io.load_image(os.path.join(datasetPath,img))#[:800,:,:]
+        imData = np.array(Image.open(os.path.join(datasetPath,img)))
+
         net.blobs['data'].data[...] = transformer.preprocess('data', imData)
         out = net.forward()
 
         fea = np.squeeze(net.blobs[layerName].data)
         feats.append(fea.flatten())
-    return feats
+    return np.array(feats)

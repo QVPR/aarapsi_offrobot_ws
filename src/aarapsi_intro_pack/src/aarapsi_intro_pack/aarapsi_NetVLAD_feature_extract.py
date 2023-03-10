@@ -80,17 +80,19 @@ def feature_query_extract(img, model, cuda, config):
 
     return np.squeeze(vlad_global_pca.detach().cpu().numpy())
 
-def feature_ref_extract(dataset_file_path, dataset_root_dir, model, device, output_features_dir, cuda, config):
-    if not os.path.isfile(dataset_file_path):
-        dataset_file_path = join(PATCHNETVLAD_ROOT_DIR, 'dataset_imagenames', dataset_file_path)
+def feature_ref_extract(dataset_root_dir, model, output_features_dir, cuda, config):
+    device = torch.device("cuda" if cuda else "cpu")
+    ref_filenames = [filename for filename in sorted(os.listdir(dataset_root_dir))  if os.path.isfile(os.path.join(dataset_root_dir, filename))]
+    # np.savetxt(dataset_root_dir+'../dataset_filenames.txt',ref_filenames, fmt='%s')
+    # dataset_file_path = dataset_root_dir+'../dataset_filenames.txt'
 
-    dataset = PlaceDataset(None, dataset_file_path, dataset_root_dir, None, config['feature_extract'])
+    eval_set = PlaceDataset(None, ref_filenames, dataset_root_dir, None, config['feature_extract'])
 
     if not exists(output_features_dir):
         makedirs(output_features_dir)
 
-    output_local_features_prefix = join(output_features_dir, 'patchfeats')
-    output_global_features_filename = join(output_features_dir, 'globalfeats.npy')
+    # output_local_features_prefix = join(output_features_dir, 'patchfeats')
+    output_global_features_filename = join(output_features_dir, 'NetVLAD_feats.npy')
 
     pool_size = int(config['global_params']['num_pcs'])
 
@@ -117,10 +119,25 @@ def feature_ref_extract(dataset_file_path, dataset_root_dir, model, device, outp
     return db_feat
 
 
-def load_model(configfile, cuda):
-    assert os.path.isfile(configfile)
+def load_model(cuda, ngpus=1):
+    # assert os.path.isfile(configfile)
     config = configparser.ConfigParser()
-    config.read(configfile)
+    # config.read(configfile)
+
+    config['feature_extract'] = {'batchsize' : 5, 'cachebatchsize' : 5, 'imageresizew' : 640, 'imageresizeh': 480}
+    config['global_params'] = {'pooling' : 'netvlad', 'resumepath' : './pretrained_models/mapillary_WPCA', 'threads' : 0, 'num_pcs': 4096, 'ngpu': ngpus}
+
+    # config['feature_extract']['batchsize'] = 5
+    # config['feature_extract']['cachebatchsize'] = 5
+    # config['feature_extract']['imageresizew'] = 640
+    # config['feature_extract']['imageresizeh'] = 480
+
+    # config['global_params']['pooling'] = 'netvlad'
+    # config['global_params']['resumepath'] = './pretrained_models/mapillary_WPCA'
+    # config['global_params']['threads'] = 0
+    # config['global_params']['num_pcs'] = 4096
+    # config['global_params']['ngpu'] = ngpus
+
 
     if cuda and not torch.cuda.is_available():
         raise Exception("No GPU found, please run with --nocuda")
@@ -143,7 +160,7 @@ def load_model(configfile, cuda):
             download_all_models(ask_for_permission=True)
 
     if isfile(resume_ckpt):
-        print("=> loading checkpoint '{}'".format(resume_ckpt))
+        print("=> Trying to load checkpoint '{}'".format(resume_ckpt))
         checkpoint = torch.load(resume_ckpt, map_location=lambda storage, loc: storage)
         if config['global_params']['num_pcs'] != '0':
             assert checkpoint['state_dict']['WPCA.0.bias'].shape[0] == int(config['global_params']['num_pcs'])
@@ -161,7 +178,7 @@ def load_model(configfile, cuda):
             model.pool = nn.DataParallel(model.pool)
        
         model = model.to(device)
-        print("=> loaded checkpoint '{}'".format(resume_ckpt, ))
+        print("=> Successfully loaded checkpoint '{}'".format(resume_ckpt, ))
     else:
         raise FileNotFoundError("=> no checkpoint found at '{}'".format(resume_ckpt))
     model.eval()
