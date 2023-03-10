@@ -4,7 +4,7 @@ from .vpred_tools import find_nth_best_match_distances
 def find_va_factor(S):
     d1=find_nth_best_match_distances(S,2)-find_nth_best_match_distances(S,1)
     d2=S.max(axis=0)-find_nth_best_match_distances(S,1)
-    return d1/d2
+    return np.array(d1/d2)
 
 def find_grad_factor(S):
     qry_list=np.arange(S.shape[1])

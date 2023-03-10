@@ -1,6 +1,10 @@
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 from bokeh.plotting import figure
+from bokeh.palettes import Sunset11, Viridis256
+from bokeh.models import ColumnDataSource, Range1d
 import cv2
 
 #   _____       _____  _       _   
@@ -105,6 +109,114 @@ def updateOdomFig(mInd, tInd, dvc, odom_in, fig_handles):
 #  | |_) | (_) |   <  __/ | | |
 #  |____/ \___/|_|\_\___|_| |_|
     
+def disable_toolbar(fig, interact=False):
+    # hide toolbar and disable plot interaction
+    fig.toolbar_location = None
+    if not interact:
+        fig.toolbar.active_drag = None
+        fig.toolbar.active_scroll = None
+        fig.toolbar.active_tap = None
+    return fig
+
+def get_contour_data(X, Y, Z, levels):
+    cs = plt.contour(X, Y, Z, levels)
+    xs = []
+    ys = []
+    xt = []
+    yt = []
+    col = []
+    text = []
+    isolevelid = 0
+    for isolevel in cs.collections:
+        isocol = isolevel.get_color()[0]
+        thecol = 3 * [None]
+        theiso = str(cs.get_array()[isolevelid])
+        isolevelid += 1
+        for i in range(3):
+            thecol[i] = int(255 * isocol[i])
+        thecol = '#%02x%02x%02x' % (thecol[0], thecol[1], thecol[2])
+
+        for path in isolevel.get_paths():
+            v = path.vertices
+            x = v[:, 0]
+            y = v[:, 1]
+            xs.append(x.tolist())
+            ys.append(y.tolist())
+            try:
+                xt.append(x[len(x) / 2])
+                yt.append(y[len(y) / 2])
+            except:
+                xt.append(5)
+                yt.append(5)
+            text.append(theiso)
+            col.append(thecol)
+
+    source = ColumnDataSource(data={'xs': xs, 'ys': ys, 'line_color': col,'xt':xt,'yt':yt,'text':text})
+    return source
+
+##################################################################
+#### Contour Figure: do and update
+
+def doCntrFigBokeh(nmrc, odom_in):
+# Set up contour figure
+
+    fig_cntr        = figure(title="SVM Contour", width=500, height=500, \
+                            x_axis_label = 'VA Factor', y_axis_label = 'Grad Factor')
+
+    fig_cntr        = disable_toolbar(fig_cntr)
+
+    img_rand        = np.array(np.ones((1000,1000,4))*255, dtype=np.uint8)
+    img_uint32      = img_rand.view(dtype=np.uint32).reshape(img_rand.shape[:-1])
+    data_dict       = dict(image=[img_uint32], x=[0], y=[0], dw=[10], dh=[10])
+    img_ds          = ColumnDataSource(data=data_dict) #CDS must contain columns, hence []
+    img_plotted     = fig_cntr.image_rgba(image='image', x='x', y='y', dw='dw', dh='dh', source=img_ds)
+    out_plotted     = fig_cntr.circle(x=[], y=[], color="red", size=7, legend_label="Out of Tolerance")
+    in_plotted      = fig_cntr.circle(x=[], y=[], color="green", size=7, legend_label="In Tolerance")
+
+    fig_cntr.x_range.range_padding = 0
+    fig_cntr.y_range.range_padding = 0
+
+    return {'fig': fig_cntr, 'img': img_plotted, 'in': in_plotted, 'out': out_plotted}
+
+def updateCntrFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
+
+    xlims = (np.min(nmrc.svm_field_msg.data.xlim), np.max(nmrc.svm_field_msg.data.xlim))
+    ylims = (np.min(nmrc.svm_field_msg.data.ylim), np.max(nmrc.svm_field_msg.data.ylim))
+
+    f1_clip = np.clip(nmrc.state.factors[0], xlims[0], xlims[1])
+    f2_clip = np.clip(nmrc.state.factors[1], ylims[0], ylims[1])
+
+    to_stream = dict(x=[f1_clip], y=[f2_clip])
+    if nmrc.state.mStateBin:
+        nmrc.fig_cntr_handles['in'].data_source.stream(to_stream, rollover = 50)
+    else:
+        nmrc.fig_cntr_handles['out'].data_source.stream(to_stream, rollover = 50)
+
+    if not nmrc.new_field:
+        return
+    
+    ros_msg_img = nmrc.svm_field_msg.image
+    if nmrc.COMPRESS_IN:
+        cv_msg_img = nmrc.bridge.compressed_imgmsg_to_cv2(ros_msg_img, "passthrough")
+    else:
+        cv_msg_img = nmrc.bridge.imgmsg_to_cv2(ros_msg_img, "passthrough")
+
+    # process image from three layer (rgb) into four layer (rgba) uint8:
+    img_rgba = np.array(np.dstack((np.flipud(np.flip(cv_msg_img,2)), np.ones((1000,1000))*255)), dtype=np.uint8)
+    # collapse into uint32:
+    img_uint32 = img_rgba.view(dtype=np.uint32).reshape(img_rgba.shape[:-1])
+
+    nmrc.fig_cntr_handles['img'].data_source.data = dict(x=[xlims[0]], y=[ylims[0]], dw=[xlims[1] - xlims[0]], \
+                                                         dh=[ylims[1] - ylims[0]], image=[img_uint32.copy()])
+
+    nmrc.fig_cntr_handles['fig'].title.text         = nmrc.svm_field_msg.data.title
+    nmrc.fig_cntr_handles['fig'].xaxis.axis_label   = nmrc.svm_field_msg.data.xlab
+    nmrc.fig_cntr_handles['fig'].yaxis.axis_label   = nmrc.svm_field_msg.data.ylab
+    nmrc.fig_cntr_handles['fig'].x_range            = Range1d(xlims[0], xlims[1])
+    nmrc.fig_cntr_handles['fig'].y_range            = Range1d(ylims[0], ylims[1])
+
+    nmrc.new_field = False
+
 ##################################################################
 #### Distance Vector Figure: do and update
 
@@ -112,14 +224,14 @@ def doDVecFigBokeh(nmrc, odom_in):
 # Set up distance vector figure
 
     fig_dvec    = figure(title="Distance Vector", width=500, height=250, \
-                         x_axis_label = 'Index', y_axis_label = 'Distance', \
-                         x_range = (0, len(odom_in['position']['x'])), y_range = (0, 1.2))
-    
+                            x_axis_label = 'Index', y_axis_label = 'Distance', \
+                            x_range = (0, len(odom_in['position']['x'])), y_range = (0, 1.2))
+    fig_dvec    = disable_toolbar(fig_dvec)
     dvc_plotted = fig_dvec.line([], [], color="black", legend_label="Distances") # distance vector
     mat_plotted = fig_dvec.circle([], [], color="red", size=7, legend_label="Selected") # matched image (lowest distance)
     tru_plotted = fig_dvec.circle([], [], color="magenta", size=7, legend_label="True") # true image (correct match)
 
-    fig_dvec.legend.location= (100, 140)
+    fig_dvec.legend.location=(100, 140)
     fig_dvec.legend.orientation='horizontal'
     fig_dvec.legend.border_line_alpha=0
     fig_dvec.legend.background_fill_alpha=0
@@ -139,13 +251,14 @@ def updateDVecFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
 
 def doOdomFigBokeh(nmrc, odom_in):
 # Set up odometry figure
-    fig_odom            = figure(title="Odometries", width=500, height=250, \
-                                 x_axis_label = 'X-Axis', y_axis_label = 'Y-Axis', \
-                                 match_aspect = True, aspect_ratio = "auto")
+    fig_odom    = figure(title="Odometries", width=500, height=250, \
+                            x_axis_label = 'X-Axis', y_axis_label = 'Y-Axis', \
+                            match_aspect = True, aspect_ratio = "auto")
+    fig_odom    = disable_toolbar(fig_odom)
     
-    ref_plotted    = fig_odom.line(   x=odom_in['position']['x'], y=odom_in['position']['y'], color="blue",   legend_label="Reference")
-    mat_plotted    = fig_odom.cross(  x=[], y=[], color="red",    legend_label="Match", size=12)
-    tru_plotted    = fig_odom.x(      x=[], y=[], color="green",  legend_label="True", size=8)
+    ref_plotted = fig_odom.line(   x=odom_in['position']['x'], y=odom_in['position']['y'], color="blue",   legend_label="Reference")
+    mat_plotted = fig_odom.cross(  x=[], y=[], color="red",    legend_label="Match", size=12)
+    tru_plotted = fig_odom.x(      x=[], y=[], color="green",  legend_label="True", size=8)
 
     fig_odom.legend.location= (100, 70)
     fig_odom.legend.orientation='horizontal'

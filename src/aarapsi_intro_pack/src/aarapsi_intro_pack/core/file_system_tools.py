@@ -4,7 +4,7 @@ import os
 import numpy as np
 
 
-def scan_directory(path):
+def scan_directory(path, short_files=False):
     dir_scan = os.scandir(path) # https://docs.python.org/3/library/os.html#os.scandir
     fil_names = []
     dir_names = []
@@ -13,12 +13,15 @@ def scan_directory(path):
         if entry.is_file():
             if entry.name.startswith('.'):
                 continue
-            fil_names.append(entry.name)
+            if short_files:
+                fil_names.append(os.path.splitext(entry.name)[0].lower())
+            else:
+                fil_names.append(entry.name)
             file_exts.append(os.path.splitext(entry)[-1].lower())
         elif entry.is_dir(): 
             dir_names.append(entry.name)
         else: raise Exception("Unknown file type detected.")
-    return fil_names, dir_names, np.unique(file_exts)
+    return fil_names, dir_names, list(np.unique(file_exts))
 
 def check_dir_type(path, filetype=None, alltype=False):
     fs, ds, exts = scan_directory(path)
