@@ -371,9 +371,8 @@ class VPRImageProcessor: # main ROS class
 # REF_ROOT        = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/"
 # DATABASE_PATH   = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/compressed_sets/"
 
-# SET_NAMES       = ['s1_ccw_nz_230208_o0_e0','s1_cw_z_230208_o0_e0',  's2_ccw_z_230222_o0_e1', \
-#                    's2_cw_z_230222_o0_e1',  's1_ccw_nz_230207_o0_e0','s1_ccw_z_230208_o0_e0', \
-#                    's2_ccw_z_230222_o0_e0', 's2_ccw_z_230222_o1_e0']
+# SET_NAMES       = ['s1_ccw_o0_e0_a0', 's1_ccw_o0_e0_a1', 's1_ccw_o0_e0_a2', 's1_cw_o0_e0_a0',\
+#                    's2_ccw_o0_e0_a0', 's2_ccw_o0_e1_a0', 's2_ccw_o1_e0_a0', 's2_cw_o0_e1_a0']
 # sizes           = [8, 16, 32, 64, 128, 400]
 
 # for SET_NAME in SET_NAMES:

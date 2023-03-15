@@ -104,7 +104,7 @@ def plot_images_two_rows(imgs1, imgs2, figsize_in_inches=(5,5)):
 
 def odom_multiimage_processor():
     #!# Variables to Update
-    set_name                    = "s2_ccw_o0_e0_a0" # Name of folder that will house generated information
+    set_name                    = "s2_cw_o0_e1_a0" # Name of folder that will house generated information
     pack_name                   = 'aarapsi_intro_pack' # in case it needs to be adjusted
     nmrc                        = mrc() # make new class instance
     path_for_dataset            = rospkg.RosPack().get_path(pack_name) + "/data/" + set_name
