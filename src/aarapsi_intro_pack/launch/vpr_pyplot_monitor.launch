@@ -1,14 +1,14 @@
 <launch>
-    <arg name="ref_dataset_name"        default="s1_ccw_z_230208_o0_e0"/>
-    <arg name="cal_qry_dataset_name"    default="s1_cw_z_230208_o0_e0"/>
-    <arg name="cal_ref_dataset_name"    default="s2_cw_z_230222_o0_e1"/>
+    <arg name="ref_dataset_name"        default="s1_ccw_o0_e0"/>
+    <arg name="cal_qry_dataset_name"    default="s1_cw_o0_e0"/>
+    <arg name="cal_ref_dataset_name"    default="s2_cw_o0_e1"/>
 
     <arg name="img_dims"                default="(32,32)"/>
     <arg name="ft_type"                 default="1"/>
 
     <arg name="database_path"           default="$(find aarapsi_intro_pack)/data/compressed_sets"/>
     <arg name="image_topic_in"          default="/ros_indigosdk_occam/image0"/>
-    <arg name="odometry_topic_in"       default="/odometry/filtered"/>
+    <arg name="odometry_topic_in"       default="/odom/filtered"/>
 
     <arg name="rate"                    default="20.0"/>
     <arg name="node_name"               default="vpr_monitor"/>
@@ -23,14 +23,16 @@
 
     <arg name="namespace"               default="/vpr_nodes"/>
     <arg name="frame_id"                default="base_link"/>
-    
+
+    <arg name="log_level"               default="2"/>
+
     <node pkg="aarapsi_intro_pack" type="vpr_monitor.py" name="$(arg node_name)" output="screen" 
         args="$(arg ref_dataset_name) $(arg cal_qry_dataset_name) $(arg cal_ref_dataset_name) $(arg database_path)
               $(arg image_topic_in) $(arg odometry_topic_in) 
               -Ci $(arg compress_in) -Co $(arg compress_out)
               -r $(arg rate) -i $(arg img_dims) -F $(arg ft_type) 
               -t $(arg tol_mode) -T $(arg tol_thresh) -p $(arg print_prediction)
-              -N $(arg node_name) -a $(arg anon) -n $(arg namespace) -f $(arg frame_id)">
+              -N $(arg node_name) -a $(arg anon) -n $(arg namespace) -f $(arg frame_id) -V $(arg log_level)">
     </node>
 
 </launch>

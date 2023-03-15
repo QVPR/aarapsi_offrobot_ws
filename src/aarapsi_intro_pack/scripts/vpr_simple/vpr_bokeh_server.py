@@ -25,9 +25,11 @@ from bokeh.server.server import Server
 from bokeh.themes import Theme
 
 class mrc: # main ROS class
-    def __init__(self, database_path, dataset_name, compress_in=True, rate_num=20.0, img_dims=(64,64), namespace='/vpr_nodes', node_name='vpr_all_in_one', anon=True):
+    def __init__(self, database_path, dataset_name, compress_in=True, rate_num=20.0, \
+                 img_dims=(64,64), namespace='/vpr_nodes', node_name='vpr_all_in_one', \
+                 anon=True, log_level=2):
 
-        rospy.init_node(node_name, anonymous=anon)
+        rospy.init_node(node_name, anonymous=anon, log_level=log_level)
         rospy.loginfo('Starting %s node.' % (node_name))
 
         # flags to denest main loop:
@@ -72,8 +74,9 @@ class mrc: # main ROS class
         self.srv_GetSVMField_once   = False
         
         # Process reference data (only needs to be done once)
-        self.image_processor        = VPRImageProcessor()
-        self.image_processor.npzLoader(self.DATABASE_PATH, self.REF_DATA_NAME, self.IMG_DIMS)
+        self.image_processor        = VPRImageProcessor(ros=True)
+        if not self.image_processor.npzLoader(self.DATABASE_PATH, self.REF_DATA_NAME, self.IMG_DIMS):
+            exit()
         self.ref_dict               = self.image_processor.SET_DICT
 
         # Prepare figures:
@@ -182,6 +185,7 @@ def do_args():
     parser.add_argument('--anon', '-a', type=check_bool, default=True, help="Specify whether node should be anonymous (default: %(default)s).")
     parser.add_argument('--namespace', '-n', default="/vpr_nodes", help="Specify namespace for topics (default: %(default)s).")
     parser.add_argument('--img-dims', '-i', type=check_positive_two_int_tuple, default=(64,64), help='Set image dimensions (default: %(default)s).')
+    parser.add_argument('--log-level', '-V', type=int, choices=[1,2,4,8,16], default=2, help="Specify ROS log level (default: %(default)s).")
 
     # Parse args...
     raw_args = parser.parse_known_args()
@@ -193,7 +197,9 @@ def main(doc):
         args = do_args()
 
         # Hand to class ...
-        nmrc = mrc(args['database-path'], args['dataset-name'], compress_in=args['compress_in'], rate_num=args['rate'], namespace=args['namespace'], img_dims=args['img_dims'], node_name=args['node_name'], anon=args['anon'])
+        nmrc = mrc(args['database-path'], args['dataset-name'], compress_in=args['compress_in'], \
+                   rate_num=args['rate'], namespace=args['namespace'], img_dims=args['img_dims'], \
+                    node_name=args['node_name'], anon=args['anon'], log_level=args['log_level'])
 
         doc.add_root(row(   column(nmrc.fig_iframe_feed_, row(nmrc.fig_iframe_mtrx_)), \
                             column(nmrc.fig_dvec_handles['fig'], nmrc.fig_odom_handles['fig']), \

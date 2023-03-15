@@ -10,6 +10,9 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+from sklearnex import patch_sklearn # Package for speeding up sklearn 
+patch_sklearn()
+
 from sklearn import svm
 from sklearn.preprocessing import StandardScaler
 
@@ -26,13 +29,13 @@ class State(Enum):
     FATAL = "[!!FATAL!!]"
 
 class SVMModelProcessor: # main ROS class
-    def __init__(self, models_dir, model=None, try_gen=True):
+    def __init__(self, models_dir, model=None, try_gen=True, ros=False):
         self._clear()       # initialise variables in system
         self.models_dir     = models_dir
 
         # for making new models:
-        self.cal_qry_ip     = VPRImageProcessor()
-        self.cal_ref_ip     = VPRImageProcessor()
+        self.cal_qry_ip     = VPRImageProcessor(ros=ros)
+        self.cal_ref_ip     = VPRImageProcessor(ros=ros)
 
         if not (model is None):
             if isinstance(model, str):

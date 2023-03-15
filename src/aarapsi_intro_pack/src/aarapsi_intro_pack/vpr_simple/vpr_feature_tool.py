@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 
 import numpy as np
+try:
+    import rospy # used for printing
+except:
+    pass
 import os
 import cv2
 import sys
@@ -25,16 +29,17 @@ class State(Enum):
     FATAL = "[!!FATAL!!]"
 
 class VPRImageProcessor: # main ROS class
-    def __init__(self):
+    def __init__(self, ros=False):
 
         self.clearImageVariables()
         self.clearOdomVariables()
+        self.ros = ros
 
     def print(self, text, state):
     # Print function helper
     # For use with integration with ROS
         try:
-            if rospy.core.is_initialized(): # if used inside of a running ROS node
+            if self.ros: # if used inside of a running ROS node
                 if state == State.DEBUG:
                     rospy.logdebug(text)
                 elif state == State.INFO:

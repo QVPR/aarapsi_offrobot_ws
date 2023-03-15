@@ -5,6 +5,7 @@ from matplotlib import pyplot as plt
 from bokeh.plotting import figure
 from bokeh.palettes import Sunset11, Viridis256
 from bokeh.models import ColumnDataSource, Range1d
+from scipy.spatial.distance import cdist
 import cv2
 
 #   _____       _____  _       _   
@@ -167,16 +168,17 @@ def doCntrFigBokeh(nmrc, odom_in):
 
     img_rand        = np.array(np.ones((1000,1000,4))*255, dtype=np.uint8)
     img_uint32      = img_rand.view(dtype=np.uint32).reshape(img_rand.shape[:-1])
-    data_dict       = dict(image=[img_uint32], x=[0], y=[0], dw=[10], dh=[10])
-    img_ds          = ColumnDataSource(data=data_dict) #CDS must contain columns, hence []
+    img_ds          = ColumnDataSource(data=dict(image=[img_uint32], x=[0], y=[0], dw=[10], dh=[10])) #CDS must contain columns, hence []
     img_plotted     = fig_cntr.image_rgba(image='image', x='x', y='y', dw='dw', dh='dh', source=img_ds)
-    out_plotted     = fig_cntr.circle(x=[], y=[], color="red", size=7, legend_label="Out of Tolerance")
-    in_plotted      = fig_cntr.circle(x=[], y=[], color="green", size=7, legend_label="In Tolerance")
+    in_yes_plotted  = fig_cntr.circle(x=[], y=[], color="green",  size=8, alpha=0.4, legend_label="True Positive")
+    out_yes_plotted = fig_cntr.circle(x=[], y=[], color="red",    size=8, alpha=0.4, legend_label="True Negative")
+    in_no_plotted   = fig_cntr.circle(x=[], y=[], color="blue",   size=8, alpha=0.4, legend_label="False Positive")
+    out_no_plotted  = fig_cntr.circle(x=[], y=[], color="orange", size=8, alpha=0.4, legend_label="False Negative")
 
     fig_cntr.x_range.range_padding = 0
     fig_cntr.y_range.range_padding = 0
 
-    return {'fig': fig_cntr, 'img': img_plotted, 'in': in_plotted, 'out': out_plotted}
+    return {'fig': fig_cntr, 'img': img_plotted, 'in_y': in_yes_plotted, 'out_y': out_yes_plotted, 'in_n': in_no_plotted, 'out_n': out_no_plotted}
 
 def updateCntrFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
 
@@ -187,10 +189,18 @@ def updateCntrFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
     f2_clip = np.clip(nmrc.state.factors[1], ylims[0], ylims[1])
 
     to_stream = dict(x=[f1_clip], y=[f2_clip])
+
+    data_to_add = ''
     if nmrc.state.mStateBin:
-        nmrc.fig_cntr_handles['in'].data_source.stream(to_stream, rollover = 50)
+        data_to_add = 'in'
     else:
-        nmrc.fig_cntr_handles['out'].data_source.stream(to_stream, rollover = 50)
+        data_to_add = 'out'
+    if nmrc.state.data.state == 2:
+        data_to_add += '_y'
+    elif nmrc.state.data.state == 1:
+        data_to_add += '_n'
+
+    nmrc.fig_cntr_handles[data_to_add].data_source.stream(to_stream, rollover = 50)
 
     if not nmrc.new_field:
         return
@@ -227,24 +237,29 @@ def doDVecFigBokeh(nmrc, odom_in):
                             x_axis_label = 'Index', y_axis_label = 'Distance', \
                             x_range = (0, len(odom_in['position']['x'])), y_range = (0, 1.2))
     fig_dvec    = disable_toolbar(fig_dvec)
-    dvc_plotted = fig_dvec.line([], [], color="black", legend_label="Distances") # distance vector
-    mat_plotted = fig_dvec.circle([], [], color="red", size=7, legend_label="Selected") # matched image (lowest distance)
-    tru_plotted = fig_dvec.circle([], [], color="magenta", size=7, legend_label="True") # true image (correct match)
+    spd_plotted = fig_dvec.line([],   [], color="orange",           legend_label="Spatial Separation") # Distance from match
+    dvc_plotted = fig_dvec.line([],   [], color="black",            legend_label="Distance Vector") # distance vector
+    mat_plotted = fig_dvec.circle([], [], color="red",     size=7,  legend_label="Selected") # matched image (lowest distance)
+    tru_plotted = fig_dvec.circle([], [], color="magenta", size=7,  legend_label="True") # true image (correct match)
 
-    fig_dvec.legend.location=(100, 140)
+    fig_dvec.legend.location=(0, 140)
     fig_dvec.legend.orientation='horizontal'
     fig_dvec.legend.border_line_alpha=0
     fig_dvec.legend.background_fill_alpha=0
 
-    return {'fig': fig_dvec, 'dvc': dvc_plotted, 'mat': mat_plotted, 'tru': tru_plotted}
+    return {'fig': fig_dvec, 'spd': spd_plotted, 'dvc': dvc_plotted, 'mat': mat_plotted, 'tru': tru_plotted}
 
 def updateDVecFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
 # Update DVec figure with new data (match->mInd, true->tInd)
 # Use old handles (mat, tru) and crunched distance vector (dvc)
-    max_val = max(dvc[:])
-    nmrc.fig_dvec_handles['dvc'].data_source.data = {'x': list(range(len(dvc-1))), 'y': dvc/max_val}
-    nmrc.fig_dvec_handles['mat'].data_source.data = {'x': [mInd], 'y': [dvc[mInd]/max_val]}
-    nmrc.fig_dvec_handles['tru'].data_source.data = {'x': [tInd], 'y': [dvc[tInd]/max_val]}
+    spd = cdist(np.transpose(np.matrix([odom_in['position']['x'],odom_in['position']['y']])), \
+        np.matrix([odom_in['position']['x'][mInd], odom_in['position']['y'][mInd]]))
+    spd_max_val = max(spd[:])
+    dvc_max_val = max(dvc[:])
+    nmrc.fig_dvec_handles['spd'].data_source.data = {'x': list(range(len(spd-1))), 'y': spd/spd_max_val}
+    nmrc.fig_dvec_handles['dvc'].data_source.data = {'x': list(range(len(dvc-1))), 'y': dvc/dvc_max_val}
+    nmrc.fig_dvec_handles['mat'].data_source.data = {'x': [mInd], 'y': [dvc[mInd]/dvc_max_val]}
+    nmrc.fig_dvec_handles['tru'].data_source.data = {'x': [tInd], 'y': [dvc[tInd]/dvc_max_val]}
 
 ##################################################################
 #### Odometry Figure: do and update
@@ -256,28 +271,36 @@ def doOdomFigBokeh(nmrc, odom_in):
                             match_aspect = True, aspect_ratio = "auto")
     fig_odom    = disable_toolbar(fig_odom)
     
-    ref_plotted = fig_odom.line(   x=odom_in['position']['x'], y=odom_in['position']['y'], color="blue",   legend_label="Reference")
-    mat_plotted = fig_odom.cross(  x=[], y=[], color="red",    legend_label="Match", size=12)
-    tru_plotted = fig_odom.x(      x=[], y=[], color="green",  legend_label="True", size=8)
+    ref_plotted = fig_odom.line(   x=odom_in['position']['x'], y=odom_in['position']['y'], color="blue", alpha=0.5, legend_label="Reference")
+    var_plotted = fig_odom.circle( x=[], y=[], color="blue", size=[], alpha=0.2)
+    seg_plotted = fig_odom.segment(x0=[], y0=[], x1=[], y1=[], line_color="black", line_width=1, alpha=0.3)
+    mat_plotted = fig_odom.cross(  x=[], y=[], color="red",    legend_label="Match", size=12, alpha=0.5)
+    tru_plotted = fig_odom.circle( x=[], y=[], color="green",  legend_label="True", size=8, alpha=0.5)
 
     fig_odom.legend.location= (100, 70)
     fig_odom.legend.orientation='horizontal'
     fig_odom.legend.border_line_alpha=0
     fig_odom.legend.background_fill_alpha=0
 
-    return {'fig': fig_odom, 'ref': ref_plotted, 'mat': mat_plotted, 'tru': tru_plotted}
+    return {'fig': fig_odom, 'ref': ref_plotted, 'var': var_plotted, 'seg': seg_plotted, 'mat': mat_plotted, 'tru': tru_plotted}
 
 def updateOdomFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
 # Update odometryfigure with new data (match->mInd, true->tInd)
 # Use old handles (reference, match, true)
     # Stream/append new value for "match" (estimate) and "true" (correct) odometry:
-    new_mat_data = dict()
-    new_tru_data = dict()
-    new_mat_data['x'] = nmrc.fig_odom_handles['mat'].data_source.data['x'] + [odom_in['position']['x'][mInd]]
-    new_mat_data['y'] = nmrc.fig_odom_handles['mat'].data_source.data['y'] + [odom_in['position']['y'][mInd]]
-    new_tru_data['x'] = nmrc.fig_odom_handles['tru'].data_source.data['x'] + [odom_in['position']['x'][tInd]]
-    new_tru_data['y'] = nmrc.fig_odom_handles['tru'].data_source.data['y'] + [odom_in['position']['y'][tInd]]
+    num_points = len(odom_in['position']['y'])
+    new_mat_data = dict(x=[odom_in['position']['x'][mInd]], \
+                        y=[odom_in['position']['y'][mInd]])
+    new_tru_data = dict(x=[odom_in['position']['x'][tInd]], \
+                        y=[odom_in['position']['y'][tInd]])
+    new_size = ( (((mInd - tInd) + num_points) % num_points) / float(num_points))
+    new_var_data = dict(**new_tru_data, size=[int(10*new_size+2)])
+    new_mod_data = dict(x0=new_mat_data['x'], y0=new_mat_data['y'], x1=new_tru_data['x'], y1=new_tru_data['y'])
+    print((num_points, new_size))
     #nmrc.fig_odom_handles['mat'].data_source.data = new_mat_data
     #nmrc.fig_odom_handles['tru'].data_source.data = new_tru_data
-    nmrc.fig_odom_handles['mat'].data_source.stream(new_mat_data, rollover=10)
-    nmrc.fig_odom_handles['tru'].data_source.stream(new_tru_data, rollover=10)
+    if not (mInd == tInd):
+        nmrc.fig_odom_handles['seg'].data_source.stream(new_mod_data, rollover=num_points)
+        nmrc.fig_odom_handles['mat'].data_source.stream(new_mat_data, rollover=num_points)
+    nmrc.fig_odom_handles['var'].data_source.stream(new_var_data, rollover=num_points)
+    nmrc.fig_odom_handles['tru'].data_source.stream(new_tru_data, rollover=1)

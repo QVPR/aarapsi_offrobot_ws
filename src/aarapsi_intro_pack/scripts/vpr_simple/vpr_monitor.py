@@ -26,10 +26,10 @@ class mrc: # main ROS class
                     tolerance_threshold=5.0, tolerance_mode=Tolerance_Mode.METRE_LINE, \
                     namespace="/vpr_nodes", node_name='vpr_monitor', anon=True, frame_id='base_link', \
                     cal_folder='forward', ref_folder='forward', \
-                    print_prediction=True,\
+                    print_prediction=True, log_level=2\
                 ):
 
-        rospy.init_node(node_name, anonymous=anon)
+        rospy.init_node(node_name, anonymous=anon, log_level=log_level)
         rospy.loginfo('Starting %s node.' % (node_name))
 
         self.rate_num           = rate_num # Hz, maximum of between 21-26 Hz (varies) with no plotting/image/ground truth/compression.
@@ -93,7 +93,7 @@ class mrc: # main ROS class
 
         # Process reference data (only needs to be done once)
         rospy.logdebug("Loading reference data set...")
-        self.ref_ip                 = VPRImageProcessor()
+        self.ref_ip                 = VPRImageProcessor(ros=True)
         if not self.ref_ip.npzLoader(self.DATABASE_PATH, self.REF_DATA_NAME, self.IMG_DIMS):
             self.exit()
 
@@ -115,8 +115,7 @@ class mrc: # main ROS class
         self.svm_model_params       = dict(ref=self.CAL_REF_DATA_NAME, qry=self.CAL_QRY_DATA_NAME, img_dims=self.IMG_DIMS, \
                                            folder=self.CAL_FOLDER, database_path=self.DATABASE_PATH)
         self.svm_model_dir          = rospkg.RosPack().get_path(rospkg.get_package_name(os.path.abspath(__file__))) + "/cfg/svm_models"
-        self.svm                    = SVMModelProcessor(self.svm_model_dir, model=self.svm_model_params)
-
+        self.svm                    = SVMModelProcessor(self.svm_model_dir, model=self.svm_model_params, ros=True)
         self.main_ready = True
 
     def handle_GetSVMField(self, req):
@@ -173,9 +172,9 @@ class mrc: # main ROS class
         self.SVM_FIELD_MSG.header.frame_id          = self.FRAME_ID
         self.SVM_FIELD_MSG.header.stamp             = rospy.Time.now()
 
-def exit(self):
-    rospy.loginfo("Quit received.")
-    sys.exit()
+    def exit(self):
+        rospy.loginfo("Quit received.")
+        sys.exit()
 
 def main_loop(nmrc):
 
@@ -241,7 +240,8 @@ def do_args():
     parser.add_argument('--namespace', '-n', default="/vpr_nodes", help="Specify namespace for topics (default: %(default)s).")
     parser.add_argument('--frame-id', '-f', default="base_link", help="Specify frame_id for messages (default: %(default)s).")
     parser.add_argument('--print-prediction', '-p', type=check_bool, default=True, help="Specify whether the monitor's prediction should be printed (default: %(default)s).")
-
+    parser.add_argument('--log-level', '-V', type=int, choices=[1,2,4,8,16], default=2, help="Specify ROS log level (default: %(default)s).")
+    
     # Parse args...
     raw_args = parser.parse_known_args()
     return vars(raw_args[0])
@@ -256,7 +256,7 @@ if __name__ == '__main__':
                     rate_num=args['rate'], ft_type=enum_get(args['ft_type'], FeatureType), img_dims=args['img_dims'], \
                     tolerance_threshold=args['tol_thresh'], tolerance_mode=enum_get(args['tol_mode'], Tolerance_Mode), \
                     namespace=args['namespace'], node_name=args['node_name'], anon=args['anon'],  frame_id=args['frame_id'], \
-                    print_prediction=args['print_prediction'], \
+                    print_prediction=args['print_prediction'], log_level=args['log_level']\
                 )
 
         rospy.loginfo("Initialisation complete. Listening for queries...")    

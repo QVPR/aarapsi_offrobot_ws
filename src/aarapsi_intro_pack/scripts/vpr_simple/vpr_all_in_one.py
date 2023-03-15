@@ -10,6 +10,7 @@ import rospkg
 from matplotlib import pyplot as plt
 import argparse as ap
 import os
+import sys
 
 from scipy.spatial.distance import cdist
 
@@ -26,10 +27,10 @@ class mrc: # main ROS class
                     tolerance_threshold=5.0, tolerance_mode=Tolerance_Mode.METRE_LINE, \
                     match_metric='euclidean', namespace="/vpr_nodes", \
                     time_history_length=20, frame_id="base_link", \
-                    node_name='vpr_all_in_one', anon=True\
+                    node_name='vpr_all_in_one', anon=True, log_level=2\
                 ):
 
-        rospy.init_node(node_name, anonymous=anon)
+        rospy.init_node(node_name, anonymous=anon, log_level=log_level)
         rospy.loginfo('Starting %s node.' % (node_name))
 
         ## Parse all the inputs:
@@ -72,10 +73,14 @@ class mrc: # main ROS class
         self.bridge                 = CvBridge() # to convert sensor_msgs/(Compressed)Image to cv2.
 
         # Process reference data (only needs to be done once)
-        self.image_processor        = VPRImageProcessor()
-        self.ref_dict               = self.image_processor.npzDatabaseLoadSave(self.DATABASE_PATH, self.REF_DATA_NAME, \
+        self.image_processor        = VPRImageProcessor(ros=True)
+        try:
+            self.ref_dict               = self.image_processor.npzDatabaseLoadSave(self.DATABASE_PATH, self.REF_DATA_NAME, \
                                                                                 self.REF_IMG_PATH, self.REF_ODOM_PATH, \
                                                                                 self.FEAT_TYPE, self.IMG_DIMS, do_save=False)
+        except:
+            self.exit()
+
         self.img_folder             = 'forward'
 
         # Handle ROS details for input topics:
@@ -241,6 +246,10 @@ class mrc: # main ROS class
         if self.MAKE_LABEL:
             self.vpr_label_pub.publish(struct_to_pub) # label publisher
 
+    def exit(self):
+        rospy.loginfo("Quit received.")
+        sys.exit()
+
 def main_loop(nmrc):
 # Main loop process
 
@@ -370,6 +379,7 @@ def do_args():
     parser.add_argument('--anon', '-a', type=check_bool, default=True, help="Specify whether node should be anonymous (default: %(default)s).")
     parser.add_argument('--namespace', '-n', default="/vpr_nodes", help="Specify namespace for topics (default: %(default)s).")
     parser.add_argument('--frame-id', '-f', default="base_link", help="Specify frame_id for messages (default: %(default)s).")
+    parser.add_argument('--log-level', '-V', type=int, choices=[1,2,4,8,16], default=2, help="Specify ROS log level (default: %(default)s).")
 
     # Parse args...
     raw_args = parser.parse_known_args()
@@ -386,7 +396,7 @@ if __name__ == '__main__':
                     img_dims=args['img_dims'], icon_settings=args['(size, distance)'], tolerance_threshold=args['tol_thresh'], \
                     tolerance_mode=enum_get(args['tol_mode'], Tolerance_Mode), match_metric='euclidean', namespace=args['namespace'], \
                     time_history_length=args['time_history_length'], frame_id=args['frame_id'], \
-                    node_name=args['node_name'], anon=args['anon']\
+                    node_name=args['node_name'], anon=args['anon'], log_level=args['log_level']\
                 )
 
         rospy.loginfo("Initialisation complete. Listening for queries...")    
