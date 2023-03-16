@@ -6,6 +6,7 @@ from bokeh.plotting import figure
 from bokeh.palettes import Sunset11, Viridis256
 from bokeh.models import ColumnDataSource, Range1d
 from scipy.spatial.distance import cdist
+import warnings
 import cv2
 
 #   _____       _____  _       _   
@@ -266,21 +267,38 @@ def updateDVecFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
 
 def doOdomFigBokeh(nmrc, odom_in):
 # Set up odometry figure
+
+    xlims = (np.min(odom_in['position']['x']), np.max(odom_in['position']['x']))
+    ylims = (np.min(odom_in['position']['y']), np.max(odom_in['position']['y'] * 1.1))
+    xrang = xlims[1] - xlims[0]
+    yrang = ylims[1] - ylims[0]
+
     fig_odom    = figure(title="Odometries", width=500, height=250, \
                             x_axis_label = 'X-Axis', y_axis_label = 'Y-Axis', \
+                            x_range = (xlims[0] - 0.1 * xrang, xlims[1] + 0.1 * xrang), \
+                            y_range = (ylims[0] - 0.1 * yrang, ylims[1] + 0.1 * yrang), \
                             match_aspect = True, aspect_ratio = "auto")
     fig_odom    = disable_toolbar(fig_odom)
-    
-    ref_plotted = fig_odom.line(   x=odom_in['position']['x'], y=odom_in['position']['y'], color="blue", alpha=0.5, legend_label="Reference")
-    var_plotted = fig_odom.circle( x=[], y=[], color="blue", size=[], alpha=0.2)
-    seg_plotted = fig_odom.segment(x0=[], y0=[], x1=[], y1=[], line_color="black", line_width=1, alpha=0.3)
-    mat_plotted = fig_odom.cross(  x=[], y=[], color="red",    legend_label="Match", size=12, alpha=0.5)
-    tru_plotted = fig_odom.circle( x=[], y=[], color="green",  legend_label="True", size=8, alpha=0.5)
 
-    fig_odom.legend.location= (100, 70)
+    # Make legend glyphs
+    fig_odom.line(x=[xlims[1]*2], y=[ylims[1]*2], color="blue", line_dash='dotted', legend_label="Path")
+    fig_odom.cross(x=[xlims[1]*2], y=[ylims[1]*2], color="red", legend_label="Match", size=14)
+    fig_odom.circle( x=[xlims[1]*2], y=[ylims[1]*2], color="green", legend_label="True", size=4,)
+    
+    ref_plotted = fig_odom.line(   x=odom_in['position']['x'], y=odom_in['position']['y'], color="blue", \
+                                   alpha=0.5, line_dash='dotted')
+    var_plotted = fig_odom.circle( x=[], y=[], color="blue", size=[], alpha=0.1)
+    seg_plotted = fig_odom.segment(x0=[], y0=[], x1=[], y1=[], line_color="black", line_width=1, alpha=[])
+    mat_plotted = fig_odom.cross(  x=[], y=[], color="red", size=12, alpha=[])
+    tru_plotted = fig_odom.circle( x=[], y=[], color="green", size=4, alpha=1.0)
+
+    fig_odom.legend.location= (120, 145)
     fig_odom.legend.orientation='horizontal'
     fig_odom.legend.border_line_alpha=0
     fig_odom.legend.background_fill_alpha=0
+    fig_odom.legend.items[0].visible = True
+    fig_odom.legend.items[1].visible = True
+    fig_odom.legend.items[2].visible = True
 
     return {'fig': fig_odom, 'ref': ref_plotted, 'var': var_plotted, 'seg': seg_plotted, 'mat': mat_plotted, 'tru': tru_plotted}
 
@@ -288,19 +306,26 @@ def updateOdomFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
 # Update odometryfigure with new data (match->mInd, true->tInd)
 # Use old handles (reference, match, true)
     # Stream/append new value for "match" (estimate) and "true" (correct) odometry:
-    num_points = len(odom_in['position']['y'])
-    new_mat_data = dict(x=[odom_in['position']['x'][mInd]], \
-                        y=[odom_in['position']['y'][mInd]])
-    new_tru_data = dict(x=[odom_in['position']['x'][tInd]], \
-                        y=[odom_in['position']['y'][tInd]])
-    new_size = ( (((mInd - tInd) + num_points) % num_points) / float(num_points))
-    new_var_data = dict(**new_tru_data, size=[int(10*new_size+2)])
-    new_mod_data = dict(x0=new_mat_data['x'], y0=new_mat_data['y'], x1=new_tru_data['x'], y1=new_tru_data['y'])
-    print((num_points, new_size))
-    #nmrc.fig_odom_handles['mat'].data_source.data = new_mat_data
-    #nmrc.fig_odom_handles['tru'].data_source.data = new_tru_data
-    if not (mInd == tInd):
+    num_points  = len(odom_in['position']['y'])
+    separation  = float(np.min([abs(mInd-tInd), (-abs(mInd-tInd)%num_points)],0) / (num_points / 2))
+
+    new_alpha   = np.round(0.9 * separation,3)
+    new_size    = np.round(4.0 * np.sqrt(20.0 * separation),3)
+
+    new_tru_data = dict(x=[np.round(odom_in['position']['x'][tInd],3)], y=[np.round(odom_in['position']['y'][tInd],3)])
+    new_var_data = dict(**new_tru_data, size=[new_size])
+
+    new_mat_data = dict(x=[np.round(odom_in['position']['x'][mInd],3)], y=[np.round(odom_in['position']['y'][mInd],3)], \
+                        fill_alpha=[new_alpha], hatch_alpha=[new_alpha], line_alpha=[new_alpha])
+    new_mod_data = dict(x0=new_mat_data['x'], y0=new_mat_data['y'], x1=new_tru_data['x'], y1=new_tru_data['y'], \
+                        line_alpha=[0.05])
+    
+    with warnings.catch_warnings():
+        # Bokeh gets upset because we have discrete data that we are streaming that is duplicate
+        warnings.simplefilter("ignore")
+        
+        nmrc.fig_odom_handles['tru'].data_source.stream(new_tru_data, rollover=1)
+        nmrc.fig_odom_handles['var'].data_source.stream(new_var_data, rollover=2*num_points)
+
         nmrc.fig_odom_handles['seg'].data_source.stream(new_mod_data, rollover=num_points)
         nmrc.fig_odom_handles['mat'].data_source.stream(new_mat_data, rollover=num_points)
-    nmrc.fig_odom_handles['var'].data_source.stream(new_var_data, rollover=num_points)
-    nmrc.fig_odom_handles['tru'].data_source.stream(new_tru_data, rollover=1)

@@ -196,7 +196,7 @@ class mrc: # main ROS class
     def getMatchInd(self, ft_qry, metric='euclidean'):
     # top matching reference index for query
 
-        dMat = cdist(self.ref_dict['img_feats'][self.img_folder], ft_qry, metric) # metric: 'euclidean' or 'cosine'
+        dMat = cdist(self.ref_dict['img_feats'][self.img_folder], np.matrix(ft_qry), metric) # metric: 'euclidean' or 'cosine'
         mInd = np.argmin(dMat[:])
         return mInd, dMat
     
@@ -267,7 +267,7 @@ def main_loop(nmrc):
         matchInd        = nmrc.request.data.matchId
         trueInd         = nmrc.request.data.trueId
     else:
-        ft_qry          = nmrc.image_processor.getFeat(nmrc.store_query, size=2)
+        ft_qry          = nmrc.image_processor.getFeat(nmrc.store_query)
         matchInd, dvc   = nmrc.getMatchInd(ft_qry, nmrc.MATCH_METRIC) # Find match
         trueInd         = -1 #default; can't be negative.
 
@@ -313,8 +313,9 @@ def main_loop(nmrc):
         ground_truth_string = ", Error: %2.2f%s" % (tolError, tolString)
 
     if nmrc.MAKE_IMAGE: # set by node input
-        # make labelled match+query image and add icon for groundtruthing (if enabled):
-        cv2_image_to_pub = makeImage(nmrc.store_query, np.reshape(np.array(nmrc.ref_dict['img_feats'][nmrc.img_folder])[matchInd,:], nmrc.ref_dict['img_dims']), \
+        # make labelled match+query (processed) images and add icon for groundtruthing (if enabled):
+        cv2_image_to_pub = makeImage(np.reshape(np.array(ft_qry), nmrc.ref_dict['img_dims']), \
+                                     np.reshape(np.array(nmrc.ref_dict['img_feats'][nmrc.img_folder])[matchInd,:], nmrc.ref_dict['img_dims']), \
                                         nmrc.ICON_DICT['icon'], icon_size=nmrc.ICON_DICT['size'], icon_dist=nmrc.ICON_DICT['dist'])
         
         # Measure timing for recalculating average rate:

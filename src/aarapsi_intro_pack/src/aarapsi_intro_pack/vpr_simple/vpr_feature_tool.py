@@ -306,12 +306,12 @@ class VPRImageProcessor: # main ROS class
         self.odom_z             = []
         self.ODOM_LOADED        = False
 
-    def getFeat(self, im, size=1, dims=None, fttype=None):
+    def getFeat(self, im, dims=None, fttype=None):
     # Get features from im, using VPRImageProcessor's set image dimensions and feature type (from loadImageFeatures).
     # Can override the dimensions and feature type using fttype= (from FeatureType enum) and dims= (two-element positive integer tuple)
-    # Returns feature arary, as a flattened array (size=1) or a flattened array reshaped to 2d matrix format (size=2).
+    # Returns feature array, as a flattened array
 
-        if dims is None:
+        if dims is None: # should be almost always unless testing an override
             if not (self.IMG_DIMS[0] > 0 and self.IMG_DIMS[1] > 0):
                 raise Exception("[getFeat] Image dimension not set!")
             else:
@@ -321,19 +321,14 @@ class VPRImageProcessor: # main ROS class
                 raise Exception("[getFeat] Feature type not set!")
             else:
                 fttype = self.FEAT_TYPE
-        if not ( isinstance(size, int) and (size in [1, 2]) ):
-            raise Exception("[getFeat] Size must be either integer 1 or 2.")
         try:
-            im = cv2.resize(im, dims)
-            ft = cv2.cvtColor(im, cv2.COLOR_RGB2GRAY)
+            imr = cv2.resize(im, dims)
+            ft = cv2.cvtColor(imr, cv2.COLOR_RGB2GRAY)
             if self.FEAT_TYPE == FeatureType.RAW:
                 pass # already done
             elif self.FEAT_TYPE == FeatureType.PATCHNORM:
                 ft = self.patchNormaliseImage(ft, 8)
-            if size == 1:
-                ft_ready = ft.flatten() # np 1d matrix format
-            if size == 2: # 2d matrix
-                ft_ready = ft.flatten().reshape(1,-1) # np 2D matrix format
+            ft_ready = ft.flatten() # np 1d matrix format
             return ft_ready
         except Exception as e:
             raise Exception("[getFeat] Feature vector could not be constructed.\nCode: %s" % (e))

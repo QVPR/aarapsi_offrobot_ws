@@ -40,7 +40,7 @@ def makeImage(query_raw, match_raw, icon_to_use, icon_size=100, icon_dist=0):
 
     if icon_size > 0:
         # Add Icon:
-        img_slice = match_img_lab[-1-icon_size-icon_dist:-1-icon_dist, icon_dist:icon_dist+icon_size, :]
+        img_slice = query_img_lab[-1 - icon_size - icon_dist:-1 - icon_dist, -1 - icon_size - icon_dist:-1 - icon_dist, :]
         # https://docs.opencv.org/3.4/da/d97/tutorial_threshold_inRange.html
         icon_mask_inv = cv2.inRange(icon_to_use, (50,50,50), (255,255,255)) # get border (white)
         icon_mask = 255 - icon_mask_inv # get shape
@@ -51,6 +51,6 @@ def makeImage(query_raw, match_raw, icon_to_use, icon_size=100, icon_dist=0):
         img_slice = (icon_mask_stack_inv * img_slice) + \
                     (icon_mask_stack * icon_to_use) * (opacity_icon) + \
                     (icon_mask_stack * img_slice) * (1-opacity_icon)
-        match_img_lab[-1 - icon_size - icon_dist:-1 - icon_dist, -1 - icon_size - icon_dist:-1 - icon_dist, :] = img_slice
+        query_img_lab[-1 - icon_size - icon_dist:-1 - icon_dist, -1 - icon_size - icon_dist:-1 - icon_dist, :] = img_slice
 
     return np.concatenate((match_img_lab, query_img_lab), axis=1)
