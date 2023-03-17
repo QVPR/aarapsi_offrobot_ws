@@ -32,26 +32,25 @@ class SVMModelProcessor: # main ROS class
     def __init__(self, models_dir, model=None, try_gen=True, ros=False):
         self._clear()       # initialise variables in system
         self.models_dir     = models_dir
-
+        self.ros            = ros
         # for making new models:
-        self.cal_qry_ip     = VPRImageProcessor(ros=ros)
-        self.cal_ref_ip     = VPRImageProcessor(ros=ros)
+        self.cal_qry_ip     = VPRImageProcessor(ros=self.ros)
+        self.cal_ref_ip     = VPRImageProcessor(ros=self.ros)
 
         if not (model is None):
             if isinstance(model, str):
                 self.load_model(model)
-                if not self.model_ready:
-                    raise Exception("Model load failed.")
             elif isinstance(model, dict):
                 self.load_model_params(model)
                 if try_gen and (not self.model_ready):
                     self.generate_model(model['database_path'], model['qry'], model['ref'], model['img_dims'], model['folder'])
-                if not self.model_ready:
-                    raise Exception("Model load failed.")
             else:
                 raise Exception("Model type not supported. Valid types: str, dict")
+            if not self.model_ready:
+                raise Exception("Model load failed.")
+            self._print("[SVMModelProcessor] Model Ready.", State.INFO)
 
-    def generate_model(self, database_path, cal_qry_dataset, cal_ref_dataset, img_dims, folder):
+    def generate_model(self, database_path, cal_qry_dataset, cal_ref_dataset, img_dims, folder, save=True):
         # store for access in saving operation:
         self.database_path      = database_path
         self.cal_qry_dataset    = cal_qry_dataset
@@ -66,6 +65,9 @@ class SVMModelProcessor: # main ROS class
         self._train()
         self._make()
         self.model_ready        = True
+
+        if save:
+            self.save_model(check_exists=True)
 
         return self
 
@@ -220,7 +222,6 @@ class SVMModelProcessor: # main ROS class
         # Extract factors that describe the "sharpness" of distance vectors
         self.factor1_cal    = find_va_factor(self.Scal)
         self.factor2_cal    = find_grad_factor(self.Scal)
-        self.factors        = ['VA ratio', 'Average Gradient'] # for axis labels when plotting
 
         # Form input vector
         self.Xcal           = np.c_[self.factor1_cal, self.factor2_cal]
@@ -292,7 +293,6 @@ class SVMModelProcessor: # main ROS class
         self.rstd               = None
         self.factor1_cal        = None
         self.factor2_cal        = None
-        self.factors            = []
         self.features_calqry    = []
         self.features_calref    = []
         self.odom_calqry        = {}
@@ -310,7 +310,7 @@ class SVMModelProcessor: # main ROS class
     # Print function helper
     # For use with integration with ROS
         try:
-            if rospy.core.is_initialized(): # if used inside of a running ROS node
+            if self.ros: # if used inside of a running ROS node
                 if state == State.DEBUG:
                     rospy.logdebug(text)
                 elif state == State.INFO:
