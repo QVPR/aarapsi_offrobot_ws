@@ -17,7 +17,7 @@ class Timer:
     def addb(self):
         self.add_bounds = True
 
-    def show(self, name=None, thresh=0.001):
+    def calc(self, thresh=0.001):
         times = []
         for i in range(len(self.points) - 1):
             this_time = abs(self.points[i+1]-self.points[i])
@@ -26,6 +26,10 @@ class Timer:
             times.append(this_time)
         if self.add_bounds and len(self.points) > 0:
             times.append(abs(self.points[-1] - self.points[0]))
+        return times
+
+    def show(self, name=None, thresh=0.001):
+        times = self.calc(thresh)
         string = str(times).replace(' ','')
         if not (name is None):
             string = "[" + name + "] " + string
@@ -68,3 +72,16 @@ def getArrayDetails(arr):
     _range  = str(np.max(arr) - np.min(arr))
     string_to_ret = "%s%s %s<%s<%s [%s]" % (_shape, _type, _min, _mean, _max, _range)
     return string_to_ret
+
+def combine_dicts(dicts):
+    keys = []
+    for d in dicts:
+        keys.extend(list(d.keys()))
+    # dict comprehension:
+    return { k: # key
+            tuple(d[k] for d in dicts if k in d) # what the dict entry will be (tuple comprehension)
+            for k in set(keys) # define iterations for k
+            }
+
+def get_num_decimals(num):
+    return str(num)[::-1].find('.')
