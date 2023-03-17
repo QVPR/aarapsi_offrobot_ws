@@ -1,10 +1,13 @@
 <launch>
+    <arg name="launch_cruncher"         default="true"/>
+    <arg name="launch_monitor"          default="true"/>
+    <arg name="launch_plotter"          default="true"/>
+    <arg name="launch_webserver"        default="true"/>
+
     <arg name="port"                    default="5006"/>
     <arg name="address"                 default="0.0.0.0"/>
 
-    <arg name="launch_webserver"        default="true"/>
-
-    <arg name="dataset_name"            default="s2_ccw_o0_e0_a0"/> 
+    <arg name="dataset_name"            default="s2_ccw_o0_e0_a0"/>
     <!-- s1_ccw_o0_e0_a0        s1_ccw_o0_e0_a1         s1_ccw_o0_e0_a2 -->
     <!-- s2_ccw_o0_e0_a0        s2_ccw_o0_e1_a0         s2_ccw_o1_e0_a0 -->
 
@@ -50,11 +53,11 @@
 
     <arg name="plotter_compress_in"     default="False"/>
 
-    <arg name="log_level"               default="2"/>
+    <arg name="log_level"               default="1"/>
 
     <node if="$(arg launch_webserver)" pkg="web_video_server" type="web_video_server" name="web_video_server" output="screen"/>
     
-    <node pkg="aarapsi_intro_pack" type="vpr_all_in_one.py" name="$(arg cruncher_node_name)" output="screen" 
+    <node if="$(arg launch_cruncher)" pkg="aarapsi_intro_pack" type="vpr_all_in_one.py" name="$(arg cruncher_node_name)" output="screen" 
         args="$(arg dataset_name) $(arg database_path) $(arg ref_imgs_path) $(arg ref_odom_path)
               $(arg image_topic_in) $(arg odometry_topic_in) 
               -Ci $(arg cruncher_compress_in) -Co $(arg cruncher_compress_out) -P $(arg cruncher_do_plotting) -I $(arg cruncher_make_images) -G $(arg cruncher_groundtruth) -L $(arg cruncher_make_labels)
@@ -63,7 +66,7 @@
               -N $(arg cruncher_node_name) -a $(arg anon) -n $(arg namespace) -f $(arg frame_id) -V $(arg log_level)">
     </node>
     
-    <node pkg="aarapsi_intro_pack" type="vpr_monitor.py" name="$(arg monitor_node_name)" output="screen" 
+    <node if="$(arg launch_monitor)" pkg="aarapsi_intro_pack" type="vpr_monitor.py" name="$(arg monitor_node_name)" output="screen" 
         args="$(arg dataset_name) $(arg cal_qry_dataset_name) $(arg cal_ref_dataset_name) $(arg database_path)
               $(arg image_topic_in) $(arg odometry_topic_in) 
               -Ci $(arg monitor_compress_in) -Co $(arg monitor_compress_out)
@@ -72,7 +75,7 @@
               -N $(arg monitor_node_name) -a $(arg anon) -n $(arg namespace) -V $(arg log_level)">
     </node>
     
-    <node pkg="aarapsi_intro_pack" type="vpr_bokeh_server.py" name="$(arg plotter_node_name)" output="screen" 
+    <node if="$(arg launch_plotter)" pkg="aarapsi_intro_pack" type="vpr_bokeh_server.py" name="$(arg plotter_node_name)" output="screen" 
         args="$(arg dataset_name) $(arg database_path)
               -Ci $(arg plotter_compress_in) -r $(arg rate) -i $(arg img_dims)
               -N $(arg plotter_node_name) -a $(arg anon) -n $(arg namespace) -f $(arg frame_id)
