@@ -24,6 +24,9 @@ from bokeh.models.widgets import Div
 from bokeh.server.server import Server
 from bokeh.themes import Theme
 
+import logging
+logging.getLogger('bokeh').setLevel(logging.CRITICAL) # hide bokeh superfluous messages
+
 class mrc: # main ROS class
     def __init__(self, database_path, dataset_name, compress_in=True, rate_num=20.0, \
                  img_dims=(64,64), namespace='/vpr_nodes', node_name='vpr_all_in_one', \
@@ -70,7 +73,6 @@ class mrc: # main ROS class
         self.svm_state_sub          = rospy.Subscriber(self.NAMESPACE + "/monitor/state" + self.in_img_tpc_mode, MonitorDetails, self.state_callback, queue_size=1)
         self.svm_field_sub          = rospy.Subscriber(self.NAMESPACE + "/monitor/field" + self.in_img_tpc_mode, self.in_img_dets, self.field_callback, queue_size=1)
         self.srv_GetSVMField        = rospy.ServiceProxy(self.NAMESPACE + '/GetSVMField', GetSVMField)
-        self.srv_GetSVMField_timer  = rospy.Timer(rospy.Duration(secs=1), self.timer_srv_GetSVMField)
         self.srv_GetSVMField_once   = False
         
         # Process reference data (only needs to be done once)
@@ -111,7 +113,7 @@ class mrc: # main ROS class
         except:
             rospy.logerr(formatException())
 
-    def timer_srv_GetSVMField(self, event):
+    def timer_srv_GetSVMField(self):
         self._timer_srv_GetSVMField(generate=True)
 
     def field_callback(self, msg):
@@ -130,7 +132,7 @@ class mrc: # main ROS class
 def main_loop(nmrc):
 # Main loop process
     if not nmrc.srv_GetSVMField_once:
-        nmrc._timer_srv_GetSVMField()
+        nmrc._timer_srv_GetSVMField(generate=True)
 
     if not (nmrc.new_state and nmrc.main_ready): # denest
         return
@@ -212,6 +214,7 @@ def main(doc):
         doc.theme = Theme(filename=root + "theme.yaml")
 
         doc.add_periodic_callback(partial(ros_spin, nmrc=nmrc), int(1000 * (1/nmrc.rate_num)))
+        #doc.add_periodic_callback(nmrc.timer_srv_GetSVMField, 1000)
     except Exception:
         rospy.logerr(formatException())
         exit()
@@ -232,6 +235,7 @@ if __name__ == '__main__':
     #server.show("/")
     server.io_loop.start()
 
-    
+## Useful
+# rospy.loginfo([server._tornado._applications['/']._session_contexts[key].destroyed for key in server._tornado._applications['/']._session_contexts.keys()])
 
     

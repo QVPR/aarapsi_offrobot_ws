@@ -18,6 +18,7 @@ from aarapsi_intro_pack import VPRImageProcessor, SVMModelProcessor, Tolerance_M
 from aarapsi_intro_pack.vpred import *
 from aarapsi_intro_pack.core.enum_tools import enum_value_options, enum_get
 from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_positive_two_int_tuple, check_bool
+from aarapsi_intro_pack.core.helper_tools import formatException
 
 class mrc: # main ROS class
     def __init__(self, ref_dataset_name, cal_qry_dataset_name, cal_ref_dataset_name, database_path, image_feed_input, odometry_input, \
@@ -91,15 +92,18 @@ class mrc: # main ROS class
             self.out_mon_dets       = MonitorDetails
 
 
-        # Process reference data (only needs to be done once)
-        rospy.logdebug("Loading reference data set...")
-        self.ref_ip                 = VPRImageProcessor(ros=True)
-        if not self.ref_ip.npzLoader(self.DATABASE_PATH, self.REF_DATA_NAME, self.IMG_DIMS):
-            self.exit()
+        ## Process reference data (only needs to be done once)
+        # rospy.logdebug("Loading reference data set...")
+        # self.ref_ip                 = VPRImageProcessor(ros=True)
+        # if not self.ref_ip.npzLoader(self.DATABASE_PATH, self.REF_DATA_NAME, self.IMG_DIMS):
+        #    self.exit()
+        ## Currently reference data set is unused / unnecessary
+        ## Kept in case we want to do some comparisons to the calibration data
+        ## Commented out to reduce initialisation time.
 
         self.vpr_label_sub          = rospy.Subscriber(self.NAMESPACE + "/label" + self.in_img_tpc_mode, self.in_label_type, self.label_callback, queue_size=1)
         self.svm_state_pub          = rospy.Publisher(self.NAMESPACE + "/monitor/state" + self.in_img_tpc_mode, self.out_mon_dets, queue_size=1)
-        self.svm_field_pub          = rospy.Publisher(self.NAMESPACE + "/monitor/field" + self.in_img_tpc_mode, self.out_img_dets, queue_size=1, latch=True)
+        self.svm_field_pub          = rospy.Publisher(self.NAMESPACE + "/monitor/field" + self.in_img_tpc_mode, self.out_img_dets, queue_size=1)
         self.svm_field_srv          = rospy.Service(self.NAMESPACE + '/GetSVMField', GetSVMField, self.handle_GetSVMField)
 
         # flags to denest main loop:
@@ -166,8 +170,8 @@ class mrc: # main ROS class
         self.SVM_FIELD_MSG.image.header.stamp       = rospy.Time.now()
         self.SVM_FIELD_MSG.data.xlim                = x_lim
         self.SVM_FIELD_MSG.data.ylim                = y_lim
-        self.SVM_FIELD_MSG.data.xlab                = self.svm.factors[0]
-        self.SVM_FIELD_MSG.data.ylab                = self.svm.factors[1]
+        self.SVM_FIELD_MSG.data.xlab                = 'VA ratio'
+        self.SVM_FIELD_MSG.data.ylab                = 'Average Gradient'
         self.SVM_FIELD_MSG.data.title               = 'SVM Decision Function'
         self.SVM_FIELD_MSG.header.frame_id          = self.FRAME_ID
         self.SVM_FIELD_MSG.header.stamp             = rospy.Time.now()
@@ -265,6 +269,8 @@ if __name__ == '__main__':
             nmrc.rate_obj.sleep()
             main_loop(nmrc)
             
-        rospy.loginfo("Exit state reached.")
+        print("Exit state reached.")
+
     except rospy.ROSInterruptException:
         pass
+
