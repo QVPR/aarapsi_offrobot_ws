@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import numpy as np
+import copy
 try:
     import rospy # used for printing
 except:
@@ -11,6 +12,7 @@ import sys
 import csv
 from enum import Enum
 from tqdm import tqdm
+from aarapsi_intro_pack.core.helper_tools import combine_dicts
 
 # For image processing type
 class FeatureType(Enum):
@@ -359,7 +361,102 @@ class VPRImageProcessor: # main ROS class
                     std1 = 0.1
                 img2[iStart:iEnd, jStart:jEnd] /= std1 # crush by std
 
-        return img2
+        return img2   
+
+    def roundSpatial(self, spatial_vec, metrics=None):
+        if metrics is None:
+            metrics = {'x': 0.05, 'y': 0.05, 'yaw': (2*np.pi/360)}
+        new_spatial_vec = {}
+        for key in metrics:
+            new_spatial_vec[key] = np.round(np.array(spatial_vec[key])/metrics[key],0) * metrics[key]
+        new_spatial_matrix = np.transpose(np.stack([new_spatial_vec[key] for key in list(new_spatial_vec)]))
+        groupings = []
+        for arr in np.unique(new_spatial_matrix, axis=0): # for each unique row combination:
+            #groupings.append(list(np.array(np.where(np.all(new_spatial_matrix==arr,axis=1))).flatten())) # indices
+            groupings.append(list(np.array((np.all(new_spatial_matrix==arr,axis=1))).flatten())) # bools
+        return new_spatial_vec, groupings
+    
+    def keep_first(self, d_in, groupings):
+    # Note: order of groupings within the original set can be lost depending on how groupings were generated
+
+        pos_dict_list = []
+        vel_dict_list = []
+        img_dict_list = []
+        for group in groupings:
+            d_in['times'][group][1:] = []
+            pos_dict_list.append({ key: d_in['odom']['position'][key][group][0]
+                                   for key in set(d_in['odom']['position'].keys())})
+            vel_dict_list.append({ key: d_in['odom']['velocity'][key][group][0]
+                                   for key in set(d_in['odom']['velocity'].keys())})
+            img_dict_list.append({ key: d_in['img_feats'][key][group][0]
+                                   for key in set(d_in['img_feats'].keys())})
+        d_in['odom']['position'] = combine_dicts(pos_dict_list)
+        d_in['odom']['velocity'] = combine_dicts(vel_dict_list)
+        d_in['img_feats']        = combine_dicts(img_dict_list)
+        return d_in
+    
+    def keep_random(self, d_in, groupings):
+    # Note: order of groupings within the original set can be lost depending on how groupings were generated
+
+        pos_dict_list = []
+        vel_dict_list = []
+        img_dict_list = []
+        for group in groupings:
+            index_to_keep = int(np.random.rand() * (len(group) - 1)) # pick a random element from every group
+            d_in['times'][group][1:] = []
+            pos_dict_list.append({ key: d_in['odom']['position'][key][group][index_to_keep] 
+                                   for key in set(d_in['odom']['position'].keys())})
+            vel_dict_list.append({ key: d_in['odom']['velocity'][key][group][index_to_keep] 
+                                   for key in set(d_in['odom']['velocity'].keys())})
+            img_dict_list.append({ key: d_in['img_feats'][key][group][index_to_keep] 
+                                   for key in set(d_in['img_feats'].keys())})
+        d_in['odom']['position'] = combine_dicts(pos_dict_list)
+        d_in['odom']['velocity'] = combine_dicts(vel_dict_list)
+        d_in['img_feats']        = combine_dicts(img_dict_list)
+        return d_in
+    
+    def keep_average(self, d_in, groupings):
+    # Note: order of groupings within the original set can be lost depending on how groupings were generated
+
+        pos_dict_list = []
+        vel_dict_list = []
+        img_dict_list = []
+        for group in groupings:
+            d_in['times'][group][1:] = []
+            pos_dict_list.append({ key: np.mean(d_in['odom']['position'][key][group])
+                                   for key in set(d_in['odom']['position'].keys())})
+            vel_dict_list.append({ key: np.mean(d_in['odom']['velocity'][key][group])
+                                   for key in set(d_in['odom']['velocity'].keys())})
+            img_dict_list.append({ key: np.mean(d_in['img_feats'][key][group], axis=0, dtype=np.uint8)
+                                   for key in set(d_in['img_feats'].keys())})
+        d_in['odom']['position'] = combine_dicts(pos_dict_list)
+        d_in['odom']['velocity'] = combine_dicts(vel_dict_list)
+        d_in['img_feats']        = combine_dicts(img_dict_list)
+        return d_in
+    
+    def filter(self, metric=None, mode=None, keep='first'):
+        if not len(self.SET_DICT):
+            raise Exception("[filter] Full dictionary not yet built.")
+        filtered = copy.deepcopy(self.SET_DICT) # ensure we don't change the original dictionary
+
+        if mode is None:
+            return filtered
+
+        keep_styles = {'first': self.keep_first, 'random': self.keep_random, 'average': self.keep_average}
+        valid_keeps = list(keep_styles.keys())
+        if not keep in valid_keeps: # ensure valid
+            raise Exception('[filter] Unsupported keep style %s. Valid keep styles: %s' % (str(keep), str(valid_keeps)))
+        valid_modes = ['position', 'velocity']
+        if not mode in valid_modes: # ensure valid
+            raise Exception('[filter] Unsupported mode %s. Valid modes: %s' % (str(mode), str(valid_modes)))
+        
+        # Perform filter step:
+        if mode in ['position', 'velocity']: # valid inputs to roundSpatial()
+            (filtered['odom'][mode], groupings) = self.roundSpatial(filtered['odom'][mode], metric)
+        #elif mode in []: #TODO
+        #    pass
+        filtered = keep_styles[keep](filtered, groupings) # remove duplications
+        return filtered
 
 ### Example usage:
 
@@ -371,8 +468,8 @@ class VPRImageProcessor: # main ROS class
 # REF_ROOT        = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/"
 # DATABASE_PATH   = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/compressed_sets/"
 
-# SET_NAMES       = ['s1_ccw_o0_e0_a0', 's1_ccw_o0_e0_a1', 's1_ccw_o0_e0_a2', 's1_cw_o0_e0_a0',\
-#                    's2_ccw_o0_e0_a0', 's2_ccw_o0_e1_a0', 's2_ccw_o1_e0_a0', 's2_cw_o0_e1_a0']
+# SET_NAMES       = ['s1_ccw_o0_e0_a0']#, 's1_ccw_o0_e0_a1', 's1_ccw_o0_e0_a2', 's1_cw_o0_e0_a0',\
+#                    #'s2_ccw_o0_e0_a0', 's2_ccw_o0_e1_a0', 's2_ccw_o1_e0_a0', 's2_cw_o0_e1_a0']
 # sizes           = [8, 16, 32, 64, 128, 400]
 
 # for SET_NAME in SET_NAMES:
