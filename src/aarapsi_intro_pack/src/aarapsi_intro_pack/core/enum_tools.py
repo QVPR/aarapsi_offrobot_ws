@@ -14,6 +14,7 @@ def enum_get(value, enumtype):
             return i
     return None
 
+
 def enum_value_options(enumtype, skip=[]):
 # Return lists of an enumtype's values and a cleaned string variant for printing purposes
     if isinstance(skip, enumtype):
@@ -26,3 +27,9 @@ def enum_value_options(enumtype, skip=[]):
         options.append(i.value)
         options_text.append(i.name)
     return options, str(options_text).replace('\'', '')
+
+def enum_value(enum_in):
+    return enum_in.value
+
+def enum_name(enum_in):
+    return enum_in.name
