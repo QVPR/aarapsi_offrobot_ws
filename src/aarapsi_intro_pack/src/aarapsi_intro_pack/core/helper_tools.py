@@ -73,13 +73,13 @@ def getArrayDetails(arr):
     string_to_ret = "%s%s %s<%s<%s [%s]" % (_shape, _type, _min, _mean, _max, _range)
     return string_to_ret
 
-def combine_dicts(dicts):
+def combine_dicts(dicts, cast=list):
     keys = []
     for d in dicts:
         keys.extend(list(d.keys()))
     # dict comprehension:
     return { k: # key
-            tuple(d[k] for d in dicts if k in d) # what the dict entry will be (tuple comprehension)
+            cast(d[k] for d in dicts if k in d) # what the dict entry will be (tuple comprehension)
             for k in set(keys) # define iterations for k
             }
 
