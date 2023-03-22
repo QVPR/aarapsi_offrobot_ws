@@ -10,22 +10,21 @@ import sys
 import os
 from PIL import Image
 
-def load_HybridNet():
+def load_HybridNet(mode='cpu'):
 
     # Disable the Caffe logging output
     logger = logging.getLogger('caffe')
-    logger.setLevel(logging.ERROR)
+    logger.setLevel(logging.FATAL)
 
     layerNames = ['conv3', 'conv4', 'conv5', 'conv6' ,'pool1', 'pool2', 'fc7_new', 'fc8_new']
     modelPath = rospkg.RosPack().get_path(rospkg.get_package_name(os.path.abspath(__file__))) +"/src/aarapsi_intro_pack/HybridNet/"
     model_file  = os.path.join(modelPath,'HybridNet.caffemodel')
-    mode = 'cpu'
     layerName = 'fc7_new'
 
     if mode == 'cpu':
-        os.environ["CUDA_VISIBLE_DEVICES"]="-1"
+        caffe.set_mode_cpu()
     elif mode == 'gpu':
-        os.environ["CUDA_VISIBLE_DEVICES"]="0"
+        caffe.set_mode_gpu()
 
     pool1_dim = 69984; # 96*27*27
     pool2_dim = 43264;# 256*13*13

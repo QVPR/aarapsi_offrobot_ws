@@ -3,8 +3,6 @@
 import rospkg
 import numpy as np
 import os
-from aarapsi_intro_pack import aarapsi_NetVLAD_feature_extract
-from aarapsi_intro_pack import aarapsi_HybridNet_feature_extract
 from PIL import Image
 import time
 import rospy
@@ -14,6 +12,7 @@ import torchvision.transforms as transforms
 from patchnetvlad.models.models_generic import get_pca_encoding
 from aarapsi_intro_pack import Timer
 
+gpu_exists=torch.cuda.is_available()
 rospy.init_node('test')
 #################### Open test image ###################################
 #img = Image.open(rospkg.RosPack().get_path(rospkg.get_package_name(os.path.abspath(__file__))) + '/scripts/testing/frame_id_000000.png')
@@ -22,10 +21,13 @@ rospy.init_node('test')
 img = Image.open(rospkg.RosPack().get_path(rospkg.get_package_name(os.path.abspath(__file__))) + '/scripts/testing/frame_id_000000.png')
 ref_path = rospkg.RosPack().get_path(rospkg.get_package_name(os.path.abspath(__file__))) + '/data/s1_ccw_o0_e0_a0/forward/'
 
+
 #################### NetVLAD test example ##############################
 # config_path = rospkg.RosPack().get_path(rospkg.get_package_name(os.path.abspath(__file__))) + '/src/aarapsi_intro_pack/Patch_NetVLAD/patchnetvlad/configs/netvlad_extract.ini'
-num_gpus=1
-model, config = aarapsi_NetVLAD_feature_extract.load_model(bool(num_gpus), ngpus=num_gpus)
+
+from aarapsi_intro_pack import aarapsi_NetVLAD_feature_extract
+
+model, config = aarapsi_NetVLAD_feature_extract.load_model(gpu_exists, ngpus=int(gpu_exists))
 
 def prep_query_extract(model, cuda, config):
 # Somehow, running this much code 'accelerates' the feature_query_extract
@@ -42,25 +44,44 @@ def prep_query_extract(model, cuda, config):
         vlad_global_pca = get_pca_encoding(model, vlad_global)
 
 t1 = rospy.Time.now().to_sec()
-prep_query_extract(model, bool(num_gpus), config)
+prep_query_extract(model, gpu_exists, config)
 t2 = rospy.Time.now().to_sec()
 rospy.loginfo("Duration: %s" % (str(t2-t1)))
 t1 = rospy.Time.now().to_sec()
-qry_ftrs = aarapsi_NetVLAD_feature_extract.feature_query_extract(img, model, bool(num_gpus), config)
+qry_ftrs = aarapsi_NetVLAD_feature_extract.feature_query_extract(img, model, gpu_exists, config)
 t2 = rospy.Time.now().to_sec()
 rospy.loginfo("Duration: %s" % (str(t2-t1)))
-sys.exit()
+#sys.exit()
 
-t1 = rospy.Time.now().to_sec()
-ref_ftrs = aarapsi_NetVLAD_feature_extract.feature_ref_extract(ref_path, model, ref_path+'../', bool(num_gpus), config)
-t2 = rospy.Time.now().to_sec()
-rospy.loginfo("Duration: %s" % (str(t2-t1)))
-
+# t1 = rospy.Time.now().to_sec()
+# ref_ftrs = aarapsi_NetVLAD_feature_extract.feature_ref_extract(ref_path, model, ref_path+'../', bool(num_gpus), config)
+# t2 = rospy.Time.now().to_sec()
+# rospy.loginfo("Duration: %s" % (str(t2-t1)))
+    
 
 #################### HybridNet test example ############################
-# model, transformer = aarapsi_HybridNet_feature_extract.load_HybridNet()
+os.environ['GLOG_minloglevel'] = '2' # must be done prior to importing caffe to suppress excessive logging.
+from aarapsi_intro_pack import aarapsi_HybridNet_feature_extract
+
+model, transformer = aarapsi_HybridNet_feature_extract.load_HybridNet(mode=('gpu' if gpu_exists else 'cpu'))
+t1 = time.time()
+qry_ftrs = aarapsi_HybridNet_feature_extract.HybridNet_query_extract(model, transformer, np.asarray(img))
+t2 = time.time()
+print(t2-t1)
+print(qry_ftrs.shape)
+t1 = time.time()
+qry_ftrs = aarapsi_HybridNet_feature_extract.HybridNet_query_extract(model, transformer, np.asarray(img))
+t2 = time.time()
+print(t2-t1)
+print(qry_ftrs.shape)
+
 # t1 = time.time()
-# qry_ftrs = aarapsi_HybridNet_feature_extract.HybridNet_query_extract(model, transformer, np.asarray(img))
+# qry_ftrs = aarapsi_HybridNet_feature_extract.HybridNet_query_extract(model_gpu, transformer_gpu, np.asarray(img))
+# t2 = time.time()
+# print(t2-t1)
+# print(qry_ftrs.shape)
+# t1 = time.time()
+# qry_ftrs = aarapsi_HybridNet_feature_extract.HybridNet_query_extract(model_gpu, transformer_gpu, np.asarray(img))
 # t2 = time.time()
 # print(t2-t1)
 # print(qry_ftrs.shape)
