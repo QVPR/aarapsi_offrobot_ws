@@ -32,4 +32,4 @@ def enum_value(enum_in):
     return enum_in.value
 
 def enum_name(enum_in):
-    return enum_in.name
+    return str(enum_in.name)

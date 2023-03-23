@@ -85,3 +85,23 @@ def combine_dicts(dicts, cast=list):
 
 def get_num_decimals(num):
     return str(num)[::-1].find('.')
+
+def vis_dict(input, printer=print):
+    def sub_dict_struct(input, lvl, key):
+        if lvl == 0: indent = ''
+        else: indent = '\t'*lvl
+        try:
+            _this_len = len(input) # if not iterable, will error here.
+            _this_str = ""
+            try:
+                if isinstance(input, dict):
+                    for sub_key in set(input.keys()):
+                        _this_str += sub_dict_struct(input[sub_key], lvl + 1, sub_key)
+                else:
+                    _this_str += "\t%s%s\n" % (indent, type(input[0]))
+            except:
+                _this_str = "\t%s[Unknown]\n" % (indent)
+            return "%s%s %s [%s]:\n%s" % (indent, key, type(input), _this_len, _this_str)
+        except:
+            return "%s%s %s\n" % (indent, key, type(input))
+    printer(sub_dict_struct(input, 0, 'root'))
