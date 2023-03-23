@@ -105,8 +105,6 @@ class VPRImageProcessor: # main ROS class
                 raise Exception("feat_type provided is an empty list.")
             if not all(isinstance(i, FeatureType) for i in feat_type):
                 raise Exception("feat_type provided is a list, but contains elements which are not of type FeatureType.")
-            if not (len(feat_type) == len(img_paths)):
-                raise Exception("feat_type is of type list yet does not have the same number of elements as img_paths.")
         elif not isinstance(feat_type, FeatureType):
             raise Exception("feat_type provided is not of type FeatureType.")
         else:
@@ -141,13 +139,14 @@ class VPRImageProcessor: # main ROS class
         imPath_list = np.sort(os.listdir(self._IMG_DIR))
         imPath_list = [os.path.join(self._IMG_DIR, f) for f in imPath_list]
 
-        self._IMG_FEATS = []
+        self.__IMG_FEATS = []
 
         if len(imPath_list) > 0:
             for i, imPath in tqdm(enumerate(imPath_list)):
                 frame = cv2.imread(imPath)[:, :, ::-1]
                 feat = self.getFeat(frame, fttype=fttype) # fttype: 'downsampled_patchNorm' or 'downsampled_raw'
-                self._IMG_FEATS.append(feat)
+                self.__IMG_FEATS.append(feat)
+            self._IMG_FEATS = np.stack(self.__IMG_FEATS, axis=0)
         else:
             raise Exception("[processImageDataset] No files at path - cannot continue.")
     
@@ -168,10 +167,15 @@ class VPRImageProcessor: # main ROS class
             imr = cv2.resize(im, dims)
             ft = cv2.cvtColor(imr, cv2.COLOR_RGB2GRAY)
             if fttype == FeatureType.RAW:
-                pass # already done
+                ft_ready = ft.flatten()
             elif fttype == FeatureType.PATCHNORM:
-                ft = self.patchNormaliseImage(ft, 8)
-            ft_ready = ft.flatten() # np 1d matrix format
+                ft_ready = self.patchNormaliseImage(ft, 8).flatten()
+            elif fttype == FeatureType.HYBRID:
+                raise Exception("Not implemented")
+            elif fttype == FeatureType.NETVLAD:
+                raise Exception("Not implemented")
+            else:
+                raise Exception("fttype not recognised.")
             return ft_ready
         except Exception as e:
             raise Exception("[getFeat] Feature vector could not be constructed.\nCode: %s" % (e))
@@ -381,7 +385,7 @@ class VPRImageProcessor: # main ROS class
         new_spatial_vec = {}
         for key in metrics:
             new_spatial_vec[key] = np.round(np.array(spatial_vec[key])/metrics[key],0) * metrics[key]
-        new_spatial_matrix = np.transpose(np.stack(copy.deepcopy([new_spatial_vec[key] for key in list(new_spatial_vec)])))
+        new_spatial_matrix = np.transpose(np.stack([new_spatial_vec[key] for key in list(new_spatial_vec)]))
         groupings = []
         for arr in np.unique(new_spatial_matrix, axis=0): # for each unique row combination:
             groupings.append(list(np.array(np.where(np.all(new_spatial_matrix==arr,axis=1))).flatten())) # indices
@@ -397,16 +401,7 @@ class VPRImageProcessor: # main ROS class
             for midkey in set(d_in[bigkey].keys()):
                 for lowkey in set(d_in[bigkey][midkey].keys()):
                     base = [(bigkey, midkey, lowkey)]
-                    if bigkey == 'img_feats':
-                        obj_raw = np.stack(d_in[bigkey][midkey][lowkey], axis=0)
-                        if not (type(np.array(d_in[bigkey][midkey][lowkey]).flatten()[0]) == type(np.uint8)):
-                            obj_norm = (obj_raw.astype(np.float64) - np.min(obj_raw)) / (np.max(obj_raw) - np.min(obj_raw))
-                            obj_uint8 = np.array(obj_norm * 255, dtype=int)
-                            base.extend(obj_uint8)
-                        else:
-                            base.extend(obj_raw)
-                    else:
-                        base.extend(d_in[bigkey][midkey][lowkey])
+                    base.extend(d_in[bigkey][midkey][lowkey])
                     dict_to_list.append(base)
         times = [('times',)]
         times.extend(d_in['times'])
@@ -448,12 +443,7 @@ class VPRImageProcessor: # main ROS class
                     for c, i in enumerate(np_dict_to_list[0,:]):
                         if (bigkey,midkey,lowkey) == i:
                             d_in[bigkey][midkey].pop(lowkey)
-                            if bigkey == 'img_feats':
-                                d_in[bigkey][midkey][i[2]] = np.stack(copy.deepcopy(cropped_reorder[:,c]),axis=0).astype(np.uint8)
-                            else:
-                                d_in[bigkey][midkey][i[2]] = copy.deepcopy(cropped_reorder[:,c])
-        
-
+                            d_in[bigkey][midkey][i[2]] = np.stack(cropped_reorder[:,c],axis=0)
         return d_in
     
     def filter(self, metrics=None, mode=None, keep='first'):
@@ -494,30 +484,34 @@ if __name__ == '__main__':
                             's2_ccw_o0_e0_a0', 's2_ccw_o0_e1_a0', 's2_ccw_o1_e0_a0', 's2_cw_o0_e1_a0']
     sizes               = [ 8, 16, 32, 64, 128, 400]
 
-    REF_IMG_PATHS       = [ REF_ROOT + SET_NAMES[0] + "/forward", \
+    REF_IMG_PATHS       = [ REF_ROOT + SET_NAMES[0] + "/forward", ]#\
                             #REF_ROOT + SET_NAMES[0] + "/left", \
                             #REF_ROOT + SET_NAMES[0] + "/right", \
-                            REF_ROOT + SET_NAMES[0] + "/panorama"]
+                            #REF_ROOT + SET_NAMES[0] + "/panorama"]
     REF_ODOM_PATH       = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/" + SET_NAMES[0] + "/odometry.csv"
 
     ip = VPRImageProcessor() # reinit just to clean house
     IMG_DIMS = (sizes[3],)*2
     ip.npzDatabaseLoadSave(DATABASE_PATH, SET_NAMES[0], REF_IMG_PATHS, REF_ODOM_PATH, FEAT_TYPE, IMG_DIMS, do_save=True)
+    print(type(ip.SET_DICT['img_feats']['RAW']['forward'].flatten()[0]))
+    print(type(ip.SET_DICT['img_feats']['PATCHNORM']['forward'].flatten()[0]))
     prefilt = copy.deepcopy(ip.SET_DICT)
     filtered = ip.filter(keep='average', mode='position', metrics={'x': 0.1, 'y': 0.1, 'yaw': (10*2*np.pi/360)})
-    ip.buildFullDictionary(dict_in=filtered)
-    vis_dict(prefilt)
-    vis_dict(filtered)
-    #Visualise discretisation:
-    import matplotlib
-    matplotlib.use('TkAgg')
-    from matplotlib import pyplot as plt
+    print(type(filtered['img_feats']['RAW']['forward'].flatten()[0]))
+    print(type(filtered['img_feats']['PATCHNORM']['forward'].flatten()[0]))
+#     ip.buildFullDictionary(dict_in=filtered)
+#     vis_dict(prefilt)
+#     vis_dict(filtered)
+#     #Visualise discretisation:
+#     import matplotlib
+#     matplotlib.use('TkAgg')
+#     from matplotlib import pyplot as plt
 
-    fig, axes = plt.subplots(1,1)
-    #axes.plot(np.arange(len(filtered['times'])), filtered['times'], '.')
-    axes.plot(filtered['odom']['position']['x'], filtered['odom']['position']['y'], '.', markersize=2)
-    axes.plot(prefilt['odom']['position']['x'], prefilt['odom']['position']['y'], '.', markersize=2)
-    axes.set_aspect('equal', 'box')
+    # fig, axes = plt.subplots(1,1)
+    # #axes.plot(np.arange(len(filtered['times'])), filtered['times'], '.')
+    # axes.plot(filtered['odom']['position']['x'], filtered['odom']['position']['y'], '.', markersize=2)
+    # axes.plot(prefilt['odom']['position']['x'], prefilt['odom']['position']['y'], '.', markersize=2)
+    # axes.set_aspect('equal', 'box')
     #plt.show()
 
     # Visualise forward camera feed:
@@ -527,11 +521,10 @@ if __name__ == '__main__':
         _max = np.max(img)
         _img_norm = (img - _min) / (_max - _min)
         _img_uint = np.array(_img_norm * 255, dtype=np.uint8)
-        img_processed = np.stack(copy.deepcopy(_img_uint), axis=0)
-        return img_processed
+        return _img_uint
 
     fps = 40.0
-    data_for_vid = filtered # prefilt, filtered
+    data_for_vid = prefilt # prefilt, filtered
     video_norm = cv2.VideoWriter('norm_feed.avi', 0, fps, IMG_DIMS)
     for i in range(len(data_for_vid['times'])):
         video_norm.write(np.dstack((np.reshape(prep_for_video(data_for_vid['img_feats']['PATCHNORM']['forward'][i]), IMG_DIMS),)*3))
@@ -541,9 +534,9 @@ if __name__ == '__main__':
         video_raw.write(np.dstack((np.reshape(prep_for_video(data_for_vid['img_feats']['RAW']['forward'][i]), IMG_DIMS),)*3))
     video_raw.release()
 
-    # Export single image:
-    img = np.dstack((np.reshape(filtered['img_feats']['RAW']['forward'][0], IMG_DIMS),)*3)
-    cv2.imwrite('test.png', img)
+    # # Export single image:
+    # img = np.dstack((np.reshape(filtered['img_feats']['RAW']['forward'][0], IMG_DIMS),)*3)
+    # cv2.imwrite('test.png', img)
 
     # # Iterate through multiple:
 
