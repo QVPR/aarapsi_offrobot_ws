@@ -267,7 +267,7 @@ def main_loop(nmrc):
         matchInd        = nmrc.request.data.matchId
         trueInd         = nmrc.request.data.trueId
     else:
-        ft_qry          = nmrc.image_processor.getFeat(nmrc.store_query)
+        ft_qry          = nmrc.image_processor.getFeat(nmrc.store_query, nmrc.FEAT_TYPE)
         matchInd, dvc   = nmrc.getMatchInd(ft_qry, nmrc.MATCH_METRIC) # Find match
         trueInd         = -1 #default; can't be negative.
 
