@@ -7,8 +7,8 @@
   <maintainer email="claxtono@qut.edu.au">Owen Claxton (@owenclaxton-QUT)</maintainer>
   <license>MIT</license>
   <url type="website">https://github.com/QVPR/aarapsiproject</url>
-  <url type="website">https://github.com/owenclaxton-QUT/aarapsi_offrobot_ws</url>
-  <url type="website">https://github.com/owenclaxton-QUT/aarapsi_robot_ws</url>
+  <url type="website">https://github.com/QVPR/aarapsi_offrobot_ws</url>
+  <url type="website">https://github.com/QVPR/aarapsi_robot_ws</url>
 
 
   <buildtool_depend>catkin</buildtool_depend>
