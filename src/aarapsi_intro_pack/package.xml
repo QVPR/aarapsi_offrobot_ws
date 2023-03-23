@@ -8,6 +8,8 @@
   <license>MIT</license>
   <url type="website">https://github.com/QVPR/aarapsiproject</url>
   <url type="website">https://github.com/owenclaxton-QUT/aarapsi_offrobot_ws</url>
+  <url type="website">https://github.com/owenclaxton-QUT/aarapsi_robot_ws</url>
+
 
   <buildtool_depend>catkin</buildtool_depend>
   <build_depend>geometry_msgs</build_depend>
