@@ -12,7 +12,7 @@ import sys
 import csv
 from enum import Enum
 from tqdm import tqdm
-from aarapsi_intro_pack.core.helper_tools import combine_dicts
+from aarapsi_intro_pack.core.enum_tools import enum_name
 
 # For image processing type
 class FeatureType(Enum):
@@ -57,13 +57,19 @@ class VPRImageProcessor: # main ROS class
         except:
             print(state.value + " " + str(text))
 
-    def buildFullDictionary(self):
+    def buildFullDictionary(self, dict_in=None):
+        if not (dict_in is None):
+            self.IMG_FEATS = dict_in['img_feats']
+            self.ODOM = dict_in['odom']
+            self.TIMES = dict_in['times']
+            self.ODOM_PATH = dict_in['odom_path']
+            self.IMG_PATHS = dict_in['image_paths']
+            self.IMG_DIMS = dict_in['img_dims']
         self.SET_DICT = {'img_feats': self.IMG_FEATS, \
                          'odom': self.ODOM, \
                          'times': self.TIMES,  \
                          'odom_path': self.ODOM_PATH, \
                          'image_paths': self.IMG_PATHS,  \
-                         'feat_type': self.FEAT_TYPE, \
                          'img_dims': self.IMG_DIMS
                         }
     
@@ -71,12 +77,12 @@ class VPRImageProcessor: # main ROS class
     # Load in odometry and image library from raw files (.png and .csv)
     # Feed img_paths to directory containing directories of images
     # odom_path should always be full file path of an odometry.csv file
-    # feat_type of enum type FeatureType
+    # feat_type of enum type FeatureType or a list of enums of type FeatureType
     # img_dims a two-integer positive tuple containing image width and height (width, height) in pixels
     # Returns full dictionary; empty on fail.
 
         self.print("[loadFull] Attempting to load library.", State.DEBUG)
-        if not self.loadImageFeatures(img_paths, feat_type, img_dims, skip_dirs=[odom_path]): raise Exception("Fatal")
+        if not self.loadImageFeatures(img_paths, feat_type, img_dims): raise Exception("Fatal")
         if not len(self.loadOdometry(odom_path)): raise Exception("Fatal")
         self.buildFullDictionary()
         if not (self.IMAGES_LOADED and self.ODOM_LOADED):
@@ -84,7 +90,7 @@ class VPRImageProcessor: # main ROS class
             sys.exit()
         return self.SET_DICT
 
-    def loadImageFeatures(self, img_paths, feat_type, img_dims, skip_dirs=["odo"]):
+    def loadImageFeatures(self, img_paths, feat_type, img_dims):
     # Load in images
 
         if not isinstance(img_paths, list):
@@ -94,21 +100,31 @@ class VPRImageProcessor: # main ROS class
             else:
                 raise Exception("img_paths provided is not of type list.")
 
-        if not isinstance(feat_type, FeatureType):
+        if isinstance(feat_type, list):
+            if not len(feat_type):
+                raise Exception("feat_type provided is an empty list.")
+            if not all(isinstance(i, FeatureType) for i in feat_type):
+                raise Exception("feat_type provided is a list, but contains elements which are not of type FeatureType.")
+            if not (len(feat_type) == len(img_paths)):
+                raise Exception("feat_type is of type list yet does not have the same number of elements as img_paths.")
+        elif not isinstance(feat_type, FeatureType):
             raise Exception("feat_type provided is not of type FeatureType.")
+        else:
+            feat_type = [feat_type]
         
-        self.FEAT_TYPE = feat_type
         self.IMG_DIMS = img_dims
         self.IMG_PATHS = img_paths
 
         try:
             self.IMG_FEATS = {}
-            for img_set in self.IMG_PATHS:
-                img_set_name = os.path.basename(img_set)
-                self._IMG_DIR = img_set
-                self.print("[loadImageFeatures] Loading set %s" % (img_set_name), State.INFO)
-                self.processImageDataset()
-                self.IMG_FEATS[img_set_name] = self._IMG_FEATS
+            for fttype in feat_type:
+                self.IMG_FEATS[enum_name(fttype)]  = {}
+                for img_path in self.IMG_PATHS:
+                    img_set_name = os.path.basename(img_path)
+                    self._IMG_DIR = img_path
+                    self.print("[loadImageFeatures] Loading set [%s] %s" % (enum_name(fttype), str(img_path)), State.INFO)
+                    self.processImageDataset(fttype)
+                    self.IMG_FEATS[enum_name(fttype)][img_set_name] = self._IMG_FEATS
             self.IMAGES_LOADED = True
             return len(self.IMG_PATHS)
     
@@ -117,7 +133,7 @@ class VPRImageProcessor: # main ROS class
             self.clearImageVariables()
             return 0
 
-    def processImageDataset(self): 
+    def processImageDataset(self, fttype): 
     # Extract images and their features from path
     # Store in array and return them.
 
@@ -130,11 +146,36 @@ class VPRImageProcessor: # main ROS class
         if len(imPath_list) > 0:
             for i, imPath in tqdm(enumerate(imPath_list)):
                 frame = cv2.imread(imPath)[:, :, ::-1]
-                feat = self.getFeat(frame) # ftType: 'downsampled_patchNorm' or 'downsampled_raw'
+                feat = self.getFeat(frame, fttype=fttype) # fttype: 'downsampled_patchNorm' or 'downsampled_raw'
                 self._IMG_FEATS.append(feat)
         else:
             raise Exception("[processImageDataset] No files at path - cannot continue.")
-     
+    
+    def getFeat(self, im, fttype, dims=None):
+    # Get features from im, using VPRImageProcessor's set image dimensions.
+    # Specify type via fttype= (from FeatureType enum)
+    # Can override the dimensions with dims= (two-element positive integer tuple)
+    # Returns feature array, as a flattened array
+
+        if dims is None: # should be almost always unless testing an override
+            if not (self.IMG_DIMS[0] > 0 and self.IMG_DIMS[1] > 0):
+                raise Exception("[getFeat] Image dimension not set!")
+            else:
+                dims = self.IMG_DIMS
+        if fttype == FeatureType.NONE:
+            raise Exception("[getFeat] Feature type not set!")
+        try:
+            imr = cv2.resize(im, dims)
+            ft = cv2.cvtColor(imr, cv2.COLOR_RGB2GRAY)
+            if fttype == FeatureType.RAW:
+                pass # already done
+            elif fttype == FeatureType.PATCHNORM:
+                ft = self.patchNormaliseImage(ft, 8)
+            ft_ready = ft.flatten() # np 1d matrix format
+            return ft_ready
+        except Exception as e:
+            raise Exception("[getFeat] Feature vector could not be constructed.\nCode: %s" % (e))
+
     def loadOdometry(self, odom_path):
     # Load in odometry from path
         self.ODOM_PATH = odom_path
@@ -206,7 +247,7 @@ class VPRImageProcessor: # main ROS class
             # Perform actual save operation, where each dict key is assigned as the variable name on the left-hand-side of equality 
             # i.e. filename, ft, x, y, and z will be dict keys, with lists or dicts assigned to them.
             np.savez(full_file_path, img_feats=self.IMG_FEATS, odom=self.ODOM, times=self.TIMES, \
-                        odom_path=self.ODOM_PATH, image_paths=self.IMG_PATHS, feat_type=self.FEAT_TYPE, img_dims=self.IMG_DIMS)
+                        odom_path=self.ODOM_PATH, image_paths=self.IMG_PATHS, img_dims=self.IMG_DIMS)
         except Exception as e:
             self.print("[save2npz] Unable to perform save operation. Check path.\nCode: %s" % (e), State.ERROR)
 
@@ -243,7 +284,6 @@ class VPRImageProcessor: # main ROS class
             self.ODOM_PATH = data['odom_path']
             self.IMG_PATHS = data['image_paths']
 
-            self.FEAT_TYPE = data['feat_type'].item()
             self.IMG_DIMS = tuple(data['img_dims'])
 
             self.ODOM_LOADED = True
@@ -296,7 +336,6 @@ class VPRImageProcessor: # main ROS class
     
     def clearImageVariables(self):
         self.IMG_PATHS          = ""
-        self.FEAT_TYPE          = FeatureType.NONE
         self.IMG_DIMS           = (0,0)
         self.IMG_FEATS          = []
         self.IMAGES_LOADED      = False
@@ -307,33 +346,6 @@ class VPRImageProcessor: # main ROS class
         self.odom_y             = []
         self.odom_z             = []
         self.ODOM_LOADED        = False
-
-    def getFeat(self, im, dims=None, fttype=None):
-    # Get features from im, using VPRImageProcessor's set image dimensions and feature type (from loadImageFeatures).
-    # Can override the dimensions and feature type using fttype= (from FeatureType enum) and dims= (two-element positive integer tuple)
-    # Returns feature array, as a flattened array
-
-        if dims is None: # should be almost always unless testing an override
-            if not (self.IMG_DIMS[0] > 0 and self.IMG_DIMS[1] > 0):
-                raise Exception("[getFeat] Image dimension not set!")
-            else:
-                dims = self.IMG_DIMS
-        if fttype is None:
-            if self.FEAT_TYPE == FeatureType.NONE:
-                raise Exception("[getFeat] Feature type not set!")
-            else:
-                fttype = self.FEAT_TYPE
-        try:
-            imr = cv2.resize(im, dims)
-            ft = cv2.cvtColor(imr, cv2.COLOR_RGB2GRAY)
-            if self.FEAT_TYPE == FeatureType.RAW:
-                pass # already done
-            elif self.FEAT_TYPE == FeatureType.PATCHNORM:
-                ft = self.patchNormaliseImage(ft, 8)
-            ft_ready = ft.flatten() # np 1d matrix format
-            return ft_ready
-        except Exception as e:
-            raise Exception("[getFeat] Feature vector could not be constructed.\nCode: %s" % (e))
 
     def patchNormaliseImage(self, img, patchLength):
     # TODO: vectorize
@@ -372,78 +384,83 @@ class VPRImageProcessor: # main ROS class
         new_spatial_matrix = np.transpose(np.stack([new_spatial_vec[key] for key in list(new_spatial_vec)]))
         groupings = []
         for arr in np.unique(new_spatial_matrix, axis=0): # for each unique row combination:
-            #groupings.append(list(np.array(np.where(np.all(new_spatial_matrix==arr,axis=1))).flatten())) # indices
-            groupings.append(list(np.array((np.all(new_spatial_matrix==arr,axis=1))).flatten())) # bools
+            groupings.append(list(np.array(np.where(np.all(new_spatial_matrix==arr,axis=1))).flatten())) # indices
+            #groupings.append(list(np.array((np.all(new_spatial_matrix==arr,axis=1))).flatten())) # bools
         return new_spatial_vec, groupings
     
-    def keep_first(self, d_in, groupings):
+    def keep_operation(self, d_in, groupings, mode='first'):
     # Note: order of groupings within the original set can be lost depending on how groupings were generated
 
-        pos_dict_list = []
-        vel_dict_list = []
-        img_dict_list = []
-        for group in groupings:
-            d_in['times'][group][1:] = []
-            pos_dict_list.append({ key: d_in['odom']['position'][key][group][0]
-                                   for key in set(d_in['odom']['position'].keys())})
-            vel_dict_list.append({ key: d_in['odom']['velocity'][key][group][0]
-                                   for key in set(d_in['odom']['velocity'].keys())})
-            img_dict_list.append({ key: d_in['img_feats'][key][group][0]
-                                   for key in set(d_in['img_feats'].keys())})
-        d_in['odom']['position'] = combine_dicts(pos_dict_list)
-        d_in['odom']['velocity'] = combine_dicts(vel_dict_list)
-        d_in['img_feats']        = combine_dicts(img_dict_list)
-        return d_in
-    
-    def keep_random(self, d_in, groupings):
-    # Note: order of groupings within the original set can be lost depending on how groupings were generated
+        # initialise dictionary:
+        dictionary = {'times': [], 
+                      'odom': dict.fromkeys(d_in['odom'].keys(), {}), 
+                      'img_feats': dict.fromkeys(d_in['img_feats'].keys(), {})
+                      }
+        
+        # create 'table' where all rows are the same length with first entry as the 'label' (tuple)
+        dict_to_list = []
+        for bigkey in ['odom', 'img_feats']:
+            for midkey in set(d_in[bigkey].keys()):
+                for lowkey in set(d_in[bigkey][midkey].keys()):
+                    base = [(bigkey, midkey, lowkey)]
+                    base.extend(d_in[bigkey][midkey][lowkey])
+                    dict_to_list.append(base)
+        times = [('times',)]
+        times.extend(d_in['times'])
+        dict_to_list.append(times)
+        np_dict_to_list = np.transpose(np.array(dict_to_list, dtype=object))
 
-        pos_dict_list = []
-        vel_dict_list = []
-        img_dict_list = []
+        # extract rows
+        groups_store = []
         for group in groupings:
-            index_to_keep = int(np.random.rand() * (len(group) - 1)) # pick a random element from every group
-            d_in['times'][group][1:] = []
-            pos_dict_list.append({ key: d_in['odom']['position'][key][group][index_to_keep] 
-                                   for key in set(d_in['odom']['position'].keys())})
-            vel_dict_list.append({ key: d_in['odom']['velocity'][key][group][index_to_keep] 
-                                   for key in set(d_in['odom']['velocity'].keys())})
-            img_dict_list.append({ key: d_in['img_feats'][key][group][index_to_keep] 
-                                   for key in set(d_in['img_feats'].keys())})
-        d_in['odom']['position'] = combine_dicts(pos_dict_list)
-        d_in['odom']['velocity'] = combine_dicts(vel_dict_list)
-        d_in['img_feats']        = combine_dicts(img_dict_list)
-        return d_in
-    
-    def keep_average(self, d_in, groupings):
-    # Note: order of groupings within the original set can be lost depending on how groupings were generated
+            if len(group) < 1:
+                continue
+            if mode=='average':
+                groups_store.append(np.mean(np_dict_to_list[1:, :][group,:], axis=0))
+                continue
+            elif mode=='first': 
+                index = 0
+            elif mode=='random': 
+                index = int(np.random.rand() * (len(group) - 1))
+            # for first and random modes:
+            index_to_keep = group[index] + 1 # +1 accounts for label
+            groups_store.append(np_dict_to_list[index_to_keep, :])
 
-        pos_dict_list = []
-        vel_dict_list = []
-        img_dict_list = []
-        for group in groupings:
-            d_in['times'][group][1:] = []
-            pos_dict_list.append({ key: np.mean(d_in['odom']['position'][key][group])
-                                   for key in set(d_in['odom']['position'].keys())})
-            vel_dict_list.append({ key: np.mean(d_in['odom']['velocity'][key][group])
-                                   for key in set(d_in['odom']['velocity'].keys())})
-            img_dict_list.append({ key: np.mean(d_in['img_feats'][key][group], axis=0, dtype=np.uint8)
-                                   for key in set(d_in['img_feats'].keys())})
-        d_in['odom']['position'] = combine_dicts(pos_dict_list)
-        d_in['odom']['velocity'] = combine_dicts(vel_dict_list)
-        d_in['img_feats']        = combine_dicts(img_dict_list)
+        # restructure and reorder
+        cropped_store = np.array(groups_store)
+        ind = -1
+        for c, i in enumerate(np_dict_to_list[0,:]):
+            if i[0] == 'times':
+                ind = c
+                break
+        if ind == -1: raise Exception("Fatal")
+        cropped_reorder = cropped_store[cropped_store[:,-1].argsort()]
+        dictionary['times'] = cropped_reorder[:,c]
+
+        # convert back to dictionary
+        for bigkey in ['odom', 'img_feats']:
+            for midkey in set(d_in[bigkey].keys()):
+                for lowkey in set(d_in[bigkey][midkey].keys()):
+                    for c, i in enumerate(np_dict_to_list[0,:]):
+                        if (bigkey,midkey,lowkey) == i:
+                            if bigkey == 'img_feats':
+                                dictionary[bigkey][midkey][i[2]] = np.array(np.stack(cropped_reorder[:,c],axis=0), dtype=np.uint8)
+                            else:
+                                dictionary[bigkey][midkey][i[2]] = cropped_reorder[:,c]
+
+        # update old dictionary
+        d_in.update(dictionary)
+
         return d_in
     
-    def filter(self, metric=None, mode=None, keep='first'):
+    def filter(self, metrics=None, mode=None, keep='first'):
         if not len(self.SET_DICT):
             raise Exception("[filter] Full dictionary not yet built.")
         filtered = copy.deepcopy(self.SET_DICT) # ensure we don't change the original dictionary
 
         if mode is None:
             return filtered
-
-        keep_styles = {'first': self.keep_first, 'random': self.keep_random, 'average': self.keep_average}
-        valid_keeps = list(keep_styles.keys())
+        valid_keeps = ['first', 'random', 'average']
         if not keep in valid_keeps: # ensure valid
             raise Exception('[filter] Unsupported keep style %s. Valid keep styles: %s' % (str(keep), str(valid_keeps)))
         valid_modes = ['position', 'velocity']
@@ -452,34 +469,79 @@ class VPRImageProcessor: # main ROS class
         
         # Perform filter step:
         if mode in ['position', 'velocity']: # valid inputs to roundSpatial()
-            (filtered['odom'][mode], groupings) = self.roundSpatial(filtered['odom'][mode], metric)
+            (filtered['odom'][mode], groupings) = self.roundSpatial(filtered['odom'][mode], metrics)
         #elif mode in []: #TODO
         #    pass
-        filtered = keep_styles[keep](filtered, groupings) # remove duplications
+        filtered = self.keep_operation(filtered, groupings, keep) # remove duplications
         return filtered
 
 ### Example usage:
+# if __name__ == '__main__':
+#     import rospkg
 
-# import rospkg
+#     PACKAGE_NAME        = 'aarapsi_intro_pack'
 
-# PACKAGE_NAME    = 'aarapsi_intro_pack'
+#     FEAT_TYPE           = [FeatureType.RAW, FeatureType.PATCHNORM] # Feature Type
+#     REF_ROOT            = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/"
+#     DATABASE_PATH       = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/compressed_sets/"
+#     DATABASE_PATH_FILT  = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/compressed_sets/filt"
 
-# FEAT_TYPE       = FeatureType.RAW # Feature Type
-# REF_ROOT        = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/"
-# DATABASE_PATH   = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/compressed_sets/"
+#     SET_NAMES           = [ 's1_ccw_o0_e0_a0', 's1_ccw_o0_e0_a1', 's1_ccw_o0_e0_a2', 's1_cw_o0_e0_a0',\
+#                             's2_ccw_o0_e0_a0', 's2_ccw_o0_e1_a0', 's2_ccw_o1_e0_a0', 's2_cw_o0_e1_a0']
+#     sizes               = [ 8, 16, 32, 64, 128, 400]
 
-# SET_NAMES       = ['s1_ccw_o0_e0_a0']#, 's1_ccw_o0_e0_a1', 's1_ccw_o0_e0_a2', 's1_cw_o0_e0_a0',\
-#                    #'s2_ccw_o0_e0_a0', 's2_ccw_o0_e1_a0', 's2_ccw_o1_e0_a0', 's2_cw_o0_e1_a0']
-# sizes           = [8, 16, 32, 64, 128, 400]
+#     REF_IMG_PATHS       = [ REF_ROOT + SET_NAMES[0] + "/forward", \
+#                             #REF_ROOT + SET_NAMES[0] + "/left", \
+#                             #REF_ROOT + SET_NAMES[0] + "/right", \
+#                             REF_ROOT + SET_NAMES[0] + "/panorama"]
+#     REF_ODOM_PATH       = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/" + SET_NAMES[0] + "/odometry.csv"
 
-# for SET_NAME in SET_NAMES:
-#     REF_IMG_PATHS   = [ REF_ROOT + SET_NAME + "/forward", \
-#                         REF_ROOT + SET_NAME + "/left", \
-#                         REF_ROOT + SET_NAME + "/right", \
-#                         REF_ROOT + SET_NAME + "/panorama"]
-#     REF_ODOM_PATH   = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/" + SET_NAME + "/odometry.csv"
+#     ip = VPRImageProcessor() # reinit just to clean house
+#     IMG_DIMS = (sizes[3],)*2
+#     ip.npzDatabaseLoadSave(DATABASE_PATH, SET_NAMES[0], REF_IMG_PATHS, REF_ODOM_PATH, FEAT_TYPE, IMG_DIMS, do_save=True)
 
-#     for i in sizes:
-#         IMG_DIMS = (i, i)
-#         ip = VPRImageProcessor() # reinit just to clean house
-#         ip.npzDatabaseLoadSave(DATABASE_PATH, SET_NAME, REF_IMG_PATHS, REF_ODOM_PATH, FEAT_TYPE, IMG_DIMS, do_save=True)
+#     filtered = ip.filter(keep='average', mode='position', metrics={'x': 0.1, 'y': 0.1, 'yaw': (10*2*np.pi/360)})
+    #ip.buildFullDictionary(dict_in=filtered)
+    # vis_dict(ip.SET_DICT)
+    # vis_dict(filtered)
+    # Visualise discretisation:
+    # import matplotlib
+    # matplotlib.use('TkAgg')
+    # from matplotlib import pyplot as plt
+
+    # fig, axes = plt.subplots(1,1)
+    # #axes.plot(np.arange(len(filtered['times'])), filtered['times'], '.')
+    # axes.plot(filtered['odom']['position']['x'], filtered['odom']['position']['y'], '.')
+    # axes.plot(ip.SET_DICT['odom']['position']['x'], ip.SET_DICT['odom']['position']['y'], '.')
+    # plt.show()
+
+    ## Visualise forward camera feed:
+    # fps = 40.0
+    # video = cv2.VideoWriter('project.avi', 0, fps, IMG_DIMS)
+    # for i in range(len(filtered['times'])):
+    #     video.write(np.dstack((np.reshape(filtered['img_feats']['RAW']['forward'][i], IMG_DIMS),)*3))
+    # video.release()
+
+    # # Export single image:
+    # img = np.dstack((np.reshape(filtered['img_feats']['RAW']['forward'][0], IMG_DIMS),)*3)
+    # cv2.imwrite('test.png', img)
+
+    ## Iterate through multiple:
+
+    # for SET_NAME in SET_NAMES:
+    #     REF_IMG_PATHS   = [ REF_ROOT + SET_NAME + "/forward", \
+    #                         REF_ROOT + SET_NAME + "/left", \
+    #                         REF_ROOT + SET_NAME + "/right", \
+    #                         REF_ROOT + SET_NAME + "/panorama"]
+    #     REF_ODOM_PATH   = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/" + SET_NAME + "/odometry.csv"
+
+    #     for i in sizes:
+    #         IMG_DIMS = (i, i)
+    #         ip = VPRImageProcessor() # reinit just to clean house
+    #         ip.npzDatabaseLoadSave(DATABASE_PATH, SET_NAME, REF_IMG_PATHS, REF_ODOM_PATH, FEAT_TYPE, IMG_DIMS, do_save=True)
+            
+    #         # create filtered database:
+    #         filtered = ip.filter(keep='first', mode='position', metrics={'x': 0.1, 'y': 0.1, 'yaw': (10*2*np.pi/360)})
+    #         ip.buildFullDictionary(dict_in=filtered)
+    #         ip.save2npz(DATABASE_PATH_FILT, SET_NAME)
+
