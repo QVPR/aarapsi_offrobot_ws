@@ -381,7 +381,7 @@ class VPRImageProcessor: # main ROS class
         new_spatial_vec = {}
         for key in metrics:
             new_spatial_vec[key] = np.round(np.array(spatial_vec[key])/metrics[key],0) * metrics[key]
-        new_spatial_matrix = np.transpose(np.stack([new_spatial_vec[key] for key in list(new_spatial_vec)]))
+        new_spatial_matrix = np.transpose(np.stack(copy.deepcopy([new_spatial_vec[key] for key in list(new_spatial_vec)])))
         groupings = []
         for arr in np.unique(new_spatial_matrix, axis=0): # for each unique row combination:
             groupings.append(list(np.array(np.where(np.all(new_spatial_matrix==arr,axis=1))).flatten())) # indices
@@ -390,12 +390,6 @@ class VPRImageProcessor: # main ROS class
     
     def keep_operation(self, d_in, groupings, mode='first'):
     # Note: order of groupings within the original set can be lost depending on how groupings were generated
-
-        # initialise dictionary:
-        dictionary = {'times': [], 
-                      'odom': dict.fromkeys(d_in['odom'].keys(), {}), 
-                      'img_feats': dict.fromkeys(d_in['img_feats'].keys(), {})
-                      }
         
         # create 'table' where all rows are the same length with first entry as the 'label' (tuple)
         dict_to_list = []
@@ -403,7 +397,16 @@ class VPRImageProcessor: # main ROS class
             for midkey in set(d_in[bigkey].keys()):
                 for lowkey in set(d_in[bigkey][midkey].keys()):
                     base = [(bigkey, midkey, lowkey)]
-                    base.extend(d_in[bigkey][midkey][lowkey])
+                    if bigkey == 'img_feats':
+                        obj_raw = np.stack(d_in[bigkey][midkey][lowkey], axis=0)
+                        if not (type(np.array(d_in[bigkey][midkey][lowkey]).flatten()[0]) == type(np.uint8)):
+                            obj_norm = (obj_raw.astype(np.float64) - np.min(obj_raw)) / (np.max(obj_raw) - np.min(obj_raw))
+                            obj_uint8 = np.array(obj_norm * 255, dtype=int)
+                            base.extend(obj_uint8)
+                        else:
+                            base.extend(obj_raw)
+                    else:
+                        base.extend(d_in[bigkey][midkey][lowkey])
                     dict_to_list.append(base)
         times = [('times',)]
         times.extend(d_in['times'])
@@ -435,21 +438,21 @@ class VPRImageProcessor: # main ROS class
                 break
         if ind == -1: raise Exception("Fatal")
         cropped_reorder = cropped_store[cropped_store[:,-1].argsort()]
-        dictionary['times'] = cropped_reorder[:,c]
+        d_in.pop('times')
+        d_in['times'] = cropped_reorder[:,c]
 
-        # convert back to dictionary
+        # convert back to dictionary and update old dictionary entries
         for bigkey in ['odom', 'img_feats']:
             for midkey in set(d_in[bigkey].keys()):
                 for lowkey in set(d_in[bigkey][midkey].keys()):
                     for c, i in enumerate(np_dict_to_list[0,:]):
                         if (bigkey,midkey,lowkey) == i:
+                            d_in[bigkey][midkey].pop(lowkey)
                             if bigkey == 'img_feats':
-                                dictionary[bigkey][midkey][i[2]] = np.array(np.stack(cropped_reorder[:,c],axis=0), dtype=np.uint8)
+                                d_in[bigkey][midkey][i[2]] = np.stack(copy.deepcopy(cropped_reorder[:,c]),axis=0).astype(np.uint8)
                             else:
-                                dictionary[bigkey][midkey][i[2]] = cropped_reorder[:,c]
-
-        # update old dictionary
-        d_in.update(dictionary)
+                                d_in[bigkey][midkey][i[2]] = copy.deepcopy(cropped_reorder[:,c])
+        
 
         return d_in
     
@@ -476,57 +479,73 @@ class VPRImageProcessor: # main ROS class
         return filtered
 
 ### Example usage:
-# if __name__ == '__main__':
-#     import rospkg
+if __name__ == '__main__':
+    import rospkg
+    from aarapsi_intro_pack.core.helper_tools import vis_dict
 
-#     PACKAGE_NAME        = 'aarapsi_intro_pack'
+    PACKAGE_NAME        = 'aarapsi_intro_pack'
 
-#     FEAT_TYPE           = [FeatureType.RAW, FeatureType.PATCHNORM] # Feature Type
-#     REF_ROOT            = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/"
-#     DATABASE_PATH       = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/compressed_sets/"
-#     DATABASE_PATH_FILT  = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/compressed_sets/filt"
+    FEAT_TYPE           = [FeatureType.RAW, FeatureType.PATCHNORM] # Feature Type
+    REF_ROOT            = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/"
+    DATABASE_PATH       = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/compressed_sets/"
+    DATABASE_PATH_FILT  = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/compressed_sets/filt"
 
-#     SET_NAMES           = [ 's1_ccw_o0_e0_a0', 's1_ccw_o0_e0_a1', 's1_ccw_o0_e0_a2', 's1_cw_o0_e0_a0',\
-#                             's2_ccw_o0_e0_a0', 's2_ccw_o0_e1_a0', 's2_ccw_o1_e0_a0', 's2_cw_o0_e1_a0']
-#     sizes               = [ 8, 16, 32, 64, 128, 400]
+    SET_NAMES           = [ 's1_ccw_o0_e0_a0', 's1_ccw_o0_e0_a1', 's1_ccw_o0_e0_a2', 's1_cw_o0_e0_a0',\
+                            's2_ccw_o0_e0_a0', 's2_ccw_o0_e1_a0', 's2_ccw_o1_e0_a0', 's2_cw_o0_e1_a0']
+    sizes               = [ 8, 16, 32, 64, 128, 400]
 
-#     REF_IMG_PATHS       = [ REF_ROOT + SET_NAMES[0] + "/forward", \
-#                             #REF_ROOT + SET_NAMES[0] + "/left", \
-#                             #REF_ROOT + SET_NAMES[0] + "/right", \
-#                             REF_ROOT + SET_NAMES[0] + "/panorama"]
-#     REF_ODOM_PATH       = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/" + SET_NAMES[0] + "/odometry.csv"
+    REF_IMG_PATHS       = [ REF_ROOT + SET_NAMES[0] + "/forward", \
+                            #REF_ROOT + SET_NAMES[0] + "/left", \
+                            #REF_ROOT + SET_NAMES[0] + "/right", \
+                            REF_ROOT + SET_NAMES[0] + "/panorama"]
+    REF_ODOM_PATH       = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/" + SET_NAMES[0] + "/odometry.csv"
 
-#     ip = VPRImageProcessor() # reinit just to clean house
-#     IMG_DIMS = (sizes[3],)*2
-#     ip.npzDatabaseLoadSave(DATABASE_PATH, SET_NAMES[0], REF_IMG_PATHS, REF_ODOM_PATH, FEAT_TYPE, IMG_DIMS, do_save=True)
+    ip = VPRImageProcessor() # reinit just to clean house
+    IMG_DIMS = (sizes[3],)*2
+    ip.npzDatabaseLoadSave(DATABASE_PATH, SET_NAMES[0], REF_IMG_PATHS, REF_ODOM_PATH, FEAT_TYPE, IMG_DIMS, do_save=True)
+    prefilt = copy.deepcopy(ip.SET_DICT)
+    filtered = ip.filter(keep='average', mode='position', metrics={'x': 0.1, 'y': 0.1, 'yaw': (10*2*np.pi/360)})
+    ip.buildFullDictionary(dict_in=filtered)
+    vis_dict(prefilt)
+    vis_dict(filtered)
+    #Visualise discretisation:
+    import matplotlib
+    matplotlib.use('TkAgg')
+    from matplotlib import pyplot as plt
 
-#     filtered = ip.filter(keep='average', mode='position', metrics={'x': 0.1, 'y': 0.1, 'yaw': (10*2*np.pi/360)})
-    #ip.buildFullDictionary(dict_in=filtered)
-    # vis_dict(ip.SET_DICT)
-    # vis_dict(filtered)
-    # Visualise discretisation:
-    # import matplotlib
-    # matplotlib.use('TkAgg')
-    # from matplotlib import pyplot as plt
+    fig, axes = plt.subplots(1,1)
+    #axes.plot(np.arange(len(filtered['times'])), filtered['times'], '.')
+    axes.plot(filtered['odom']['position']['x'], filtered['odom']['position']['y'], '.', markersize=2)
+    axes.plot(prefilt['odom']['position']['x'], prefilt['odom']['position']['y'], '.', markersize=2)
+    axes.set_aspect('equal', 'box')
+    #plt.show()
 
-    # fig, axes = plt.subplots(1,1)
-    # #axes.plot(np.arange(len(filtered['times'])), filtered['times'], '.')
-    # axes.plot(filtered['odom']['position']['x'], filtered['odom']['position']['y'], '.')
-    # axes.plot(ip.SET_DICT['odom']['position']['x'], ip.SET_DICT['odom']['position']['y'], '.')
-    # plt.show()
+    # Visualise forward camera feed:
 
-    ## Visualise forward camera feed:
-    # fps = 40.0
-    # video = cv2.VideoWriter('project.avi', 0, fps, IMG_DIMS)
-    # for i in range(len(filtered['times'])):
-    #     video.write(np.dstack((np.reshape(filtered['img_feats']['RAW']['forward'][i], IMG_DIMS),)*3))
-    # video.release()
+    def prep_for_video(img):
+        _min = np.min(img)
+        _max = np.max(img)
+        _img_norm = (img - _min) / (_max - _min)
+        _img_uint = np.array(_img_norm * 255, dtype=np.uint8)
+        img_processed = np.stack(copy.deepcopy(_img_uint), axis=0)
+        return img_processed
 
-    # # Export single image:
-    # img = np.dstack((np.reshape(filtered['img_feats']['RAW']['forward'][0], IMG_DIMS),)*3)
-    # cv2.imwrite('test.png', img)
+    fps = 40.0
+    data_for_vid = filtered # prefilt, filtered
+    video_norm = cv2.VideoWriter('norm_feed.avi', 0, fps, IMG_DIMS)
+    for i in range(len(data_for_vid['times'])):
+        video_norm.write(np.dstack((np.reshape(prep_for_video(data_for_vid['img_feats']['PATCHNORM']['forward'][i]), IMG_DIMS),)*3))
+    video_norm.release()
+    video_raw = cv2.VideoWriter('raw_feed.avi', 0, fps, IMG_DIMS)
+    for i in range(len(data_for_vid['times'])):
+        video_raw.write(np.dstack((np.reshape(prep_for_video(data_for_vid['img_feats']['RAW']['forward'][i]), IMG_DIMS),)*3))
+    video_raw.release()
 
-    ## Iterate through multiple:
+    # Export single image:
+    img = np.dstack((np.reshape(filtered['img_feats']['RAW']['forward'][0], IMG_DIMS),)*3)
+    cv2.imwrite('test.png', img)
+
+    # # Iterate through multiple:
 
     # for SET_NAME in SET_NAMES:
     #     REF_IMG_PATHS   = [ REF_ROOT + SET_NAME + "/forward", \
