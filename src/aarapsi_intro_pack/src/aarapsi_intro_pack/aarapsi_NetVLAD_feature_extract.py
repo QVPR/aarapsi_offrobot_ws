@@ -49,35 +49,37 @@ from patchnetvlad.tools import PATCHNETVLAD_ROOT_DIR
 from download_models import download_all_models
 
 class PlaceDataset(torch.utils.data.Dataset):
-    def __init__(self, image_paths, dataset_root_dir, transform):
+    def __init__(self, image_paths, transform, dims=None):
         super().__init__()
 
-        self.images = image_paths
-
-        self.images = [os.path.join(dataset_root_dir, image) for image in self.images]
-        # check if images are relative to root dir
-        if not os.path.isfile(self.images[0]):
-            if os.path.isfile(os.path.join(PATCHNETVLAD_ROOT_DIR, self.images[0])):
-                self.images = [os.path.join(PATCHNETVLAD_ROOT_DIR, image) for image in self.images]
-
-        self.transform = transform
+        self.from_directory = (isinstance(image_paths, str) or isinstance(image_paths, list))
+        self.images         = image_paths
+        self.transform      = transform
+        self.dims           = dims
 
     def __getitem__(self, index):
-        img = Image.open(self.images[index])
-        img = self.transform(img)
-
-        return img, index
+        if self.from_directory:
+            img     = Image.open(self.images[index])
+        else:
+            if self.dims is None: 
+                raise Exception('PlaceDataset was initialised with a compressed library without dims')
+            np_img  = np.dstack((np.reshape(self.images[index], self.dims),)*3).astype(np.uint8)
+            img     = Image.fromarray(np_img)
+        return self.transform(img), index
 
     def __len__(self):
         return len(self.images)
 
 class NetVLAD_Container:
-    def __init__(self, logger=print, cuda=False, ngpus=0, imw=640, imh=480, 
+    def __init__(self, logger=print, cuda=False, ngpus=0, 
+                 dims=None, imw=640, imh=480, 
                  batchsize=5, cachebatchsize=5, num_pcs=4096, 
                  threads=0, resumepath='./pretrained_models/mapillary_WPCA'):
+        
         self.cuda           = cuda
         self.ngpus          = ngpus
         self.logger         = logger
+        self.dims           = dims
         self.imw            = imw
         self.imh            = imh
         self.batchsize      = batchsize
@@ -92,7 +94,6 @@ class NetVLAD_Container:
 
 
     def load(self):
-
         self.config = configparser.ConfigParser()
         self.config['feature_extract'] = {'batchsize': self.batchsize, 'cachebatchsize': self.cachebatchsize, 
                                     'imageresizew': self.imw, 'imageresizeh': self.imh}
@@ -168,10 +169,14 @@ class NetVLAD_Container:
 
         return np.squeeze(vlad_global_pca.detach().cpu().numpy())
 
-    def feature_ref_extract(self, dataset_root_dir, output_features_dir=None):
-        ref_filenames = [filename for filename in sorted(os.listdir(dataset_root_dir)) if os.path.isfile(os.path.join(dataset_root_dir, filename))]
+    def feature_ref_extract(self, dataset_input, save_dir=None):
+        if isinstance(dataset_input, str):
+            self.logger("Detected path input: switching mode from compressed libraries to image directory")
+            ref_filenames = [os.path.join(dataset_input, filename) for filename in sorted(os.listdir(dataset_input)) if os.path.isfile(os.path.join(dataset_input, filename))]
+            eval_set      = PlaceDataset(ref_filenames, self.transform)
+        else:
+            eval_set      = PlaceDataset(dataset_input, self.transform, dims=self.dims)
 
-        eval_set    = PlaceDataset(ref_filenames, dataset_root_dir, self.transform)
         dataLoader  = DataLoader(dataset     = eval_set, 
                                  num_workers = int(self.config['global_params']['threads']),
                                  batch_size  = int(self.config['feature_extract']['cacheBatchSize']),
@@ -191,10 +196,10 @@ class NetVLAD_Container:
                 vlad_global_pca         = get_pca_encoding(self.model, vlad_global)
                 db_feat[indices_np, :]  = vlad_global_pca.detach().cpu().numpy()
 
-        if not (output_features_dir is None):
-            if not exists(output_features_dir):
-                makedirs(output_features_dir)
-            output_global_features_filename = join(output_features_dir, 'NetVLAD_feats.npy')
+        if not (save_dir is None):
+            if not exists(save_dir):
+                makedirs(save_dir)
+            output_global_features_filename = join(save_dir, 'NetVLAD_feats.npy')
             np.save(output_global_features_filename, db_feat)
 
         return db_feat
