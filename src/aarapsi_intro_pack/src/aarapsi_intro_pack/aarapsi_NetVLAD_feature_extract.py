@@ -39,16 +39,37 @@ from os import makedirs
 
 from tqdm.auto import tqdm
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 import numpy as np
 from PIL import Image
 
-from patchnetvlad.tools.datasets import PlaceDataset
 from patchnetvlad.models.models_generic import get_backend, get_model, get_pca_encoding
 from patchnetvlad.tools import PATCHNETVLAD_ROOT_DIR
 from download_models import download_all_models
+
+class PlaceDataset(torch.utils.data.Dataset):
+    def __init__(self, image_paths, dataset_root_dir, transform):
+        super().__init__()
+
+        self.images = image_paths
+
+        self.images = [os.path.join(dataset_root_dir, image) for image in self.images]
+        # check if images are relative to root dir
+        if not os.path.isfile(self.images[0]):
+            if os.path.isfile(os.path.join(PATCHNETVLAD_ROOT_DIR, self.images[0])):
+                self.images = [os.path.join(PATCHNETVLAD_ROOT_DIR, image) for image in self.images]
+
+        self.transform = transform
+
+    def __getitem__(self, index):
+        img = Image.open(self.images[index])
+        img = self.transform(img)
+
+        return img, index
+
+    def __len__(self):
+        return len(self.images)
 
 class NetVLAD_Container:
     def __init__(self, logger=print, cuda=False, ngpus=0, imw=640, imh=480, 
@@ -107,8 +128,8 @@ class NetVLAD_Container:
             self.model.load_state_dict(checkpoint['state_dict'])
             
             if int(self.config['global_params']['ngpu']) > 1 and torch.cuda.device_count() > 1:
-                self.model.encoder = nn.DataParallel(self.model.encoder)
-                self.model.pool = nn.DataParallel(self.model.pool)
+                self.model.encoder = torch.nn.DataParallel(self.model.encoder)
+                self.model.pool = torch.nn.DataParallel(self.model.pool)
         
             self.model = self.model.to(self.device)
             self.logger("=> Successfully loaded checkpoint '{}'".format(resume_ckpt, ))
@@ -150,19 +171,19 @@ class NetVLAD_Container:
     def feature_ref_extract(self, dataset_root_dir, output_features_dir=None):
         ref_filenames = [filename for filename in sorted(os.listdir(dataset_root_dir)) if os.path.isfile(os.path.join(dataset_root_dir, filename))]
 
-        eval_set = PlaceDataset(None, ref_filenames, dataset_root_dir, None, self.config['feature_extract'])
-        dataLoader = DataLoader(dataset     = eval_set, 
-                                num_workers = self.config['global_params']['threads'],
-                                batch_size  = self.config['feature_extract']['cacheBatchSize'],
-                                shuffle     = False, 
-                                pin_memory  = self.cuda)
+        eval_set    = PlaceDataset(ref_filenames, dataset_root_dir, self.transform)
+        dataLoader  = DataLoader(dataset     = eval_set, 
+                                 num_workers = int(self.config['global_params']['threads']),
+                                 batch_size  = int(self.config['feature_extract']['cacheBatchSize']),
+                                 shuffle     = False, 
+                                 pin_memory  = self.cuda)
 
         self.model.eval()
         with torch.no_grad():
-            tqdm.write('====> Extracting Features')
-            db_feat = np.empty((len(eval_set), self.config['global_params']['num_pcs']), dtype=np.float32)
+            self.logger('====> Extracting Features')
+            db_feat = np.empty((len(eval_set), int(self.config['global_params']['num_pcs'])), dtype=np.float32)
 
-            for (input_data, indices) in tqdm(dataLoader):
+            for (input_data, indices) in tqdm(dataLoader): # manage batches and threads
                 indices_np              = indices.detach().numpy()
                 input_data              = input_data.to(self.device)
                 image_encoding          = self.model.encoder(input_data)
