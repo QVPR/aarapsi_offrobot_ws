@@ -156,7 +156,9 @@ class NetVLAD_Container:
                                 std=[0.229, 0.224, 0.225]),
         ])
 
-    def feature_query_extract(self, img):
+    def getQryFeat(self, img):
+        if isinstance(img, str):
+            img = Image.open(img)
         if not isinstance(img, Image.Image):
             img = Image.fromarray(img)
         input_data = self.transform(img)
@@ -169,15 +171,17 @@ class NetVLAD_Container:
 
         return np.squeeze(vlad_global_pca.detach().cpu().numpy())
 
-    def feature_ref_extract(self, dataset_input, save_dir=None):
+    def getRefFeat(self, dataset_input, save_dir=None):
         if isinstance(dataset_input, str):
             self.logger("Detected path input: switching mode from compressed libraries to image directory")
-            ref_filenames = [os.path.join(dataset_input, filename) for filename in sorted(os.listdir(dataset_input)) if os.path.isfile(os.path.join(dataset_input, filename))]
-            eval_set      = PlaceDataset(ref_filenames, self.transform)
+            ref_filenames = [os.path.join(dataset_input, filename) 
+                             for filename in sorted(os.listdir(dataset_input)) 
+                             if os.path.isfile(os.path.join(dataset_input, filename))]
+            dataset_clean = PlaceDataset(ref_filenames, self.transform)
         else:
-            eval_set      = PlaceDataset(dataset_input, self.transform, dims=self.dims)
+            dataset_clean = PlaceDataset(dataset_input, self.transform, dims=self.dims)
 
-        dataLoader  = DataLoader(dataset     = eval_set, 
+        dataLoader  = DataLoader(dataset     = dataset_clean, 
                                  num_workers = int(self.config['global_params']['threads']),
                                  batch_size  = int(self.config['feature_extract']['cacheBatchSize']),
                                  shuffle     = False, 
@@ -186,7 +190,7 @@ class NetVLAD_Container:
         self.model.eval()
         with torch.no_grad():
             self.logger('====> Extracting Features')
-            db_feat = np.empty((len(eval_set), int(self.config['global_params']['num_pcs'])), dtype=np.float32)
+            db_feat = np.empty((len(dataset_clean), int(self.config['global_params']['num_pcs'])), dtype=np.float32)
 
             for (input_data, indices) in tqdm(dataLoader): # manage batches and threads
                 indices_np              = indices.detach().numpy()
