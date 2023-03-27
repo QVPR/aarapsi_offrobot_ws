@@ -21,7 +21,7 @@ rospy.loginfo("\tTest Settings: \n\t\t\t\t- GPU Detected: %r\n\t\t\t\t- NetVLAD 
 
 PACKAGE_PATH        = rospkg.RosPack().get_path(rospkg.get_package_name(os.path.abspath(__file__)))
 
-FEAT_TYPE           = [FeatureType.RAW, FeatureType.PATCHNORM, FeatureType.HYBRID, FeatureType.NETVLAD] # Feature Type
+FEAT_TYPE           = [FeatureType.RAW, FeatureType.PATCHNORM, FeatureType.HYBRIDNET, FeatureType.NETVLAD] # Feature Type
 REF_ROOT            = PACKAGE_PATH + "/data/"
 DATABASE_PATH       = PACKAGE_PATH + "/data/compressed_sets/"
 DATABASE_PATH_FILT  = PACKAGE_PATH + "/data/compressed_sets/filt"

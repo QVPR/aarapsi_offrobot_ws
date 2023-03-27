@@ -17,19 +17,19 @@ from aarapsi_intro_pack.vpr_classes import NetVLAD_Container, HybridNet_Containe
 
 # For image processing type
 class FeatureType(Enum):
-    NONE = 0
-    RAW = 1
-    PATCHNORM = 2
-    NETVLAD = 3
-    HYBRID  = 4
+    NONE        = 0
+    RAW         = 1
+    PATCHNORM   = 2
+    NETVLAD     = 3
+    HYBRIDNET   = 4
 
 # For logging
 class State(Enum):
-    DEBUG = "[DEBUG]"
-    INFO = "[INFO]"
-    WARN = "[WARN]"
-    ERROR = "[!ERROR!]"
-    FATAL = "[!!FATAL!!]"
+    DEBUG       = "[DEBUG]"
+    INFO        = "[INFO]"
+    WARN        = "[WARN]"
+    ERROR       = "[!ERROR!]"
+    FATAL       = "[!!FATAL!!]"
 
 class VPRImageProcessor: # main ROS class
     def __init__(self, ros=False, init_netvlad=False, init_hybridnet=False, cuda=False, dims=None):
@@ -51,7 +51,6 @@ class VPRImageProcessor: # main ROS class
         if self.init_hybridnet:
             if dims is None: raise Exception("init_hybridnet specified true but dims not provided")
             self.hybridnet = HybridNet_Container(cuda=self.cuda, logger=lambda x: self.print(x, State.DEBUG), dims=self.IMG_DIMS)
-
 
     def print(self, text, state):
     # Print function helper
@@ -130,7 +129,9 @@ class VPRImageProcessor: # main ROS class
         img_set_names = [os.path.basename(img_path) for img_path in self.IMG_PATHS]
 
         try:
-            self.IMG_FEATS = dict.fromkeys([enum_name(fttype) for fttype in fttypes], dict.fromkeys(img_set_names)) # init empty
+            self.IMG_FEATS = dict.fromkeys([enum_name(fttype) for fttype in fttypes], {}) # init empty
+            for key in self.IMG_FEATS:
+                self.IMG_FEATS[key] = dict.fromkeys(img_set_names)
             for img_path in self.IMG_PATHS:
                 self.print("[loadImageFeatures] Loading set %s >>%s<<" % (str(self.IMG_PATHS), str(img_path)), State.INFO)
                 self.processImageDataset(img_path, fttypes)
@@ -157,9 +158,24 @@ class VPRImageProcessor: # main ROS class
         for img_file_path in tqdm(img_file_paths):
             image_list.append(cv2.imread(img_file_path)[:, :, ::-1])
 
+        # check if RAW is in fttype, if not, add for speed boost to netvlad and hybridnet
+        force_add_raw = False
+        fttype_in = list(set(fttype_in)) # remove duplicates
+        if (FeatureType.NETVLAD in fttype_in) or (FeatureType.HYBRIDNET in fttype_in):
+            if FeatureType.RAW in fttype_in:
+                fttype_in.remove(FeatureType.RAW)
+            else:
+                self.print("[processImageDataset] Forcing addition of RAW fttype, will be removed at end.", State.DEBUG)
+                force_add_raw = True
+            fttype_in.insert(0, FeatureType.RAW)
+
         for fttype in fttype_in:
             self.print("[processImageDataset] Loading set %s >>%s<<" % (str(list(self.IMG_FEATS.keys())), str(enum_name(fttype))), State.DEBUG)
-            self.IMG_FEATS[str(enum_name(fttype))][img_set_name] = self.getFeat(image_list, fttype)
+            self.IMG_FEATS[str(enum_name(fttype))][img_set_name] = copy.deepcopy(self.getFeat(image_list, fttype))
+
+        if force_add_raw: 
+            self.print("[processImageDataset] Removing forced addition of RAW fttype.", State.DEBUG)
+            self.IMG_FEATS.pop(str(enum_name(FeatureType.RAW)))
     
     def getFeat(self, im, fttype_in, dims=None):
     # Get features from im, using VPRImageProcessor's set image dimensions.
@@ -199,9 +215,9 @@ class VPRImageProcessor: # main ROS class
                         ft_ready = ft_ready_list[0]
                     else:
                         ft_ready = np.stack(ft_ready_list)
-                elif fttype == FeatureType.HYBRID:
+                elif fttype == FeatureType.HYBRIDNET:
                     if not self.init_hybridnet: 
-                        raise Exception("[getFeat] FeatureType.HYBRID provided but VPRImageProcessor not initialised with init_hybridnet=True")
+                        raise Exception("[getFeat] FeatureType.HYBRIDNET provided but VPRImageProcessor not initialised with init_hybridnet=True")
                     ft_ready = self.hybridnet.getFeat(im)
                 elif fttype == FeatureType.NETVLAD:
                     if not self.init_netvlad: 
@@ -482,7 +498,7 @@ class VPRImageProcessor: # main ROS class
                             d_in[bigkey][midkey][i[2]] = np.stack(cropped_reorder[:,c],axis=0)
         return d_in
     
-    def filter(self, metrics=None, mode=None, keep='first'):
+    def discretise(self, metrics=None, mode=None, keep='first'):
         if not len(self.SET_DICT):
             raise Exception("[filter] Full dictionary not yet built.")
         filtered = copy.deepcopy(self.SET_DICT) # ensure we don't change the original dictionary
