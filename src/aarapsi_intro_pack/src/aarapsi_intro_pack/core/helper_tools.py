@@ -91,7 +91,11 @@ def vis_dict(input, printer=print):
         if lvl == 0: indent = ''
         else: indent = '\t'*lvl
         try:
-            _this_len = len(input) # if not iterable, will error here.
+            if isinstance(input, np.ndarray):
+                _this_len = str(input.shape)
+                input = input.flatten()
+            else: 
+                _this_len = '(' + str(len(input)) + ',)' # if not iterable, will error here.
             _this_str = ""
             try:
                 if isinstance(input, dict):
@@ -101,7 +105,7 @@ def vis_dict(input, printer=print):
                     _this_str += "\t%s%s\n" % (indent, type(input[0]))
             except:
                 _this_str = "\t%s[Unknown]\n" % (indent)
-            return "%s%s %s [%s]:\n%s" % (indent, key, type(input), _this_len, _this_str)
+            return "%s%s %s %s:\n%s" % (indent, key, type(input), _this_len, _this_str)
         except:
             return "%s%s %s\n" % (indent, key, type(input))
     printer(sub_dict_struct(input, 0, 'root'))
