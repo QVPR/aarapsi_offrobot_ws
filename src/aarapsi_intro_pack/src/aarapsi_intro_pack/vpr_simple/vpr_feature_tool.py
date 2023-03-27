@@ -14,6 +14,7 @@ from enum import Enum
 from tqdm import tqdm
 from aarapsi_intro_pack.core.enum_tools import enum_name
 from aarapsi_intro_pack.vpr_classes import NetVLAD_Container, HybridNet_Container
+from aarapsi_intro_pack.core.helper_tools import formatException
 
 # For image processing type
 class FeatureType(Enum):
@@ -88,7 +89,7 @@ class VPRImageProcessor: # main ROS class
                          'img_dims': self.IMG_DIMS
                         }
     
-    def loadFull(self, img_paths, odom_path, feat_type, img_dims):
+    def loadFull(self, img_paths, odom_path, feat_type, img_dims, seed_raw_image_data=None):
     # Load in odometry and image library from raw files (.png and .csv)
     # Feed img_paths to directory containing directories of images
     # odom_path should always be full file path of an odometry.csv file
@@ -97,7 +98,7 @@ class VPRImageProcessor: # main ROS class
     # Returns full dictionary; empty on fail.
 
         self.print("[loadFull] Attempting to load library.", State.DEBUG)
-        if not self.loadImageFeatures(img_paths, feat_type, img_dims): raise Exception("Fatal")
+        if not self.loadImageFeatures(img_paths, feat_type, img_dims, seed_raw_image_data): raise Exception("Fatal")
         if not len(self.loadOdometry(odom_path)): raise Exception("Fatal")
         self.buildFullDictionary()
         if not (self.IMAGES_LOADED and self.ODOM_LOADED):
@@ -105,7 +106,7 @@ class VPRImageProcessor: # main ROS class
             sys.exit()
         return self.SET_DICT
 
-    def loadImageFeatures(self, img_paths, fttype_in, img_dims):
+    def loadImageFeatures(self, img_paths, fttype_in, img_dims, seed_raw_image_data=None):
     # Load in images
 
         if not isinstance(img_paths, list):
@@ -134,29 +135,34 @@ class VPRImageProcessor: # main ROS class
                 self.IMG_FEATS[key] = dict.fromkeys(img_set_names)
             for img_path in self.IMG_PATHS:
                 self.print("[loadImageFeatures] Loading set %s >>%s<<" % (str(self.IMG_PATHS), str(img_path)), State.INFO)
-                self.processImageDataset(img_path, fttypes)
+                self.processImageDataset(img_path, fttypes, seed_raw_image_data)
             self.IMAGES_LOADED = True
             return len(self.IMG_PATHS)
     
         except Exception as e:
             self.print("[loadImageFeatures] Unable to interpret, failed. Check variables.\nEnsure: img_paths is a valid string array, feat_type is a valid FeatureType value (not NONE), and image dimensions are a two-element integer tuple of valid dimensions (greater than zero).\nCode: %s" % (e), State.ERROR)
+            self.print(formatException(), State.DEBUG)
             self.clearImageVariables()
             return 0
 
-    def processImageDataset(self, img_path, fttype_in): 
+    def processImageDataset(self, img_path, fttype_in, seed_raw_image_data=None): 
     # Extract images and their features from path
     # Store in array and return them.
     
         img_set_name    = os.path.basename(img_path)
-        img_file_paths  = [os.path.join(img_path, f) for f in np.sort(os.listdir(img_path))]
+        if seed_raw_image_data is None:
+            img_file_paths  = [os.path.join(img_path, f) for f in np.sort(os.listdir(img_path))]
 
-        if not len(img_file_paths):
-            raise Exception("[processImageDataset] No files at path - cannot continue.")
-        
-        self.print("[processImageDataset] Attempting to process images for directory: %s" % (img_set_name), State.DEBUG)
-        image_list      = []
-        for img_file_path in tqdm(img_file_paths):
-            image_list.append(cv2.imread(img_file_path)[:, :, ::-1])
+            if not len(img_file_paths):
+                raise Exception("[processImageDataset] No files at path - cannot continue.")
+            
+            self.print("[processImageDataset] Attempting to process images for directory: %s" % (img_set_name), State.DEBUG)
+            image_list      = []
+            for img_file_path in tqdm(img_file_paths):
+                image_list.append(cv2.imread(img_file_path)[:, :, ::-1])
+        else:
+            self.print("[processImageDataset] Using seed_raw_image_data for directory: %s" % (img_set_name), State.DEBUG)
+            image_list      = seed_raw_image_data[img_path]
 
         # check if RAW is in fttype, if not, add for speed boost to netvlad and hybridnet
         force_add_raw = False
@@ -372,7 +378,7 @@ class VPRImageProcessor: # main ROS class
             self.print("[npzLoader] Load failed. Check path and file name is correct.\nCode: %s" % (e), State.ERROR)
             return {}
 
-    def npzDatabaseLoadSave(self, database_path, filename, img_paths, odom_path, feat_type, img_dims, do_save=False):
+    def npzDatabaseLoadSave(self, database_path, filename, img_paths, odom_path, feat_type, img_dims, do_save=False, seed_raw_image_data=None):
     # Public method. Handles fast loading and slow loading (in the latter, loaded data can be saved for fast loading next time)
     # database_path, filename as per npzLoader.
     # img_paths, odom_path, feat_type, and img_dims as per loadFull
@@ -380,7 +386,7 @@ class VPRImageProcessor: # main ROS class
 
         if not self.npzLoader(database_path, filename, img_dims):
             self.print("[npzDatabaseLoadSave] Fast load failed. Building normally.", State.WARN)
-            self.SET_DICT = self.loadFull(img_paths, odom_path, feat_type, img_dims)
+            self.SET_DICT = self.loadFull(img_paths, odom_path, feat_type, img_dims, seed_raw_image_data)
             if not len(self.SET_DICT):
                 raise Exception("[npzDatabaseLoadSave] Normal load failed, fatal error.")
         
@@ -393,14 +399,12 @@ class VPRImageProcessor: # main ROS class
     def clearImageVariables(self):
         self.IMG_PATHS          = ""
         self.IMG_DIMS           = (0,0)
-        self.IMG_FEATS          = []
+        self.IMG_FEATS          = {}
         self.IMAGES_LOADED      = False
 
     def clearOdomVariables(self):
         self.ODOM_PATH          = ""
-        self.odom_x             = []
-        self.odom_y             = []
-        self.odom_z             = []
+        self.ODOM               = {}
         self.ODOM_LOADED        = False
 
     def patchNormaliseImage(self, img, patchLength):
@@ -519,4 +523,21 @@ class VPRImageProcessor: # main ROS class
         #    pass
         filtered = self.keep_operation(filtered, groupings, keep) # remove duplications
         return filtered
+    
+    def destroy(self):
+        del self.ODOM_PATH     
+        del self.ODOM      
+        del self.ODOM_LOADED   
+        del self.IMG_PATHS     
+        del self.IMG_DIMS      
+        del self.IMG_FEATS     
+        del self.IMAGES_LOADED 
+        del self.TIMES
+        del self.SET_DICT
+        del self.init_netvlad
+        del self.init_hybridnet
+        self.hybridnet.destroy()
+        self.netvlad.destroy()
+        del self.hybridnet
+        del self.netvlad
 

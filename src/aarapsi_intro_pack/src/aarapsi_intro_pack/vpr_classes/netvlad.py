@@ -81,6 +81,13 @@ class PlaceDataset(torch.utils.data.Dataset):
     
     def __len__(self):
         return self.len()
+    
+    def destroy(self):
+        del self.len
+        del self.getitem
+        del self.images
+        self.transform = None # comes from NetVLAD_Container
+        del self.dims
 
 class NetVLAD_Container:
     def __init__(self, logger=print, cuda=False, ngpus=0, 
@@ -149,6 +156,23 @@ class NetVLAD_Container:
         else:
             raise FileNotFoundError("=> no checkpoint found at '{}'".format(resume_ckpt))
         self.model.eval()
+
+    def destroy(self):
+        del self.cuda
+        del self.ngpus
+        del self.logger
+        del self.dims
+        del self.imw
+        del self.imh
+        del self.batchsize
+        del self.cachebatchsize
+        del self.num_pcs
+        del self.threads
+        del self.resumepath
+        del self.transform
+        del self.config
+        del self.model
+        del self.device
 
     def prep(self):
     # Somehow, running this much code 'accelerates' the feature_query_extract
@@ -220,8 +244,8 @@ class NetVLAD_Container:
                                  shuffle     = False, 
                                  pin_memory  = self.cuda)
 
-        self.model.eval()
         with torch.no_grad():
+            self.model.eval()
             db_feat = np.empty((len(dataset_clean), int(self.config['global_params']['num_pcs'])), dtype=np.float32)
             if use_tqdm: iteration_obj = tqdm(dataLoader)
             else: iteration_obj = dataLoader
@@ -233,6 +257,9 @@ class NetVLAD_Container:
                 vlad_global             = self.model.pool(image_encoding)
                 vlad_global_pca         = get_pca_encoding(self.model, vlad_global)
                 db_feat[indices_np, :]  = vlad_global_pca.detach().cpu().numpy()
+                torch.cuda.empty_cache()
+
+        dataset_clean.destroy()
 
         if not (save_dir is None):
             if not exists(save_dir):

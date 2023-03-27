@@ -50,6 +50,12 @@ class PlaceDataset(torch.utils.data.Dataset):
     
     def __len__(self):
         return self.len()
+    
+    def destroy(self):
+        del self.len
+        del self.getitem
+        del self.images
+        del self.dims
 
 class HybridNet_Container:
     def __init__(self, logger=print, cuda=False, 
@@ -89,6 +95,17 @@ class HybridNet_Container:
         self.net.blobs['data'].reshape(1,3,227,227)
 
         self.logger('HybridNet loaded')
+
+    def destroy(self):
+        del self.logger
+        del self.net
+        del self.transformer
+        del self.cuda
+        del self.target_layer
+        del self.dims
+        del self.layerLabs
+        del self.layerDims
+        del self.layerDict
 
     def clean_data_input(self, dataset_input, dims):
         if isinstance(dataset_input, str): # either a single image path or a set (or a bad path has been provided)
@@ -146,6 +163,8 @@ class HybridNet_Container:
 
             feat = np.squeeze(self.net.blobs[self.target_layer].data).flatten()
             feats.append(feat)
+
+        dataset_clean.destroy()
             
         if len(feats) == 1:
             db_feat = feats[0]
