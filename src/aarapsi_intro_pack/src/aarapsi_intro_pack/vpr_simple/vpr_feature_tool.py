@@ -13,6 +13,7 @@ import csv
 from enum import Enum
 from tqdm import tqdm
 from aarapsi_intro_pack.core.enum_tools import enum_name
+from aarapsi_intro_pack.vpr_classes import NetVLAD_Container, HybridNet_Container
 
 # For image processing type
 class FeatureType(Enum):
@@ -31,11 +32,26 @@ class State(Enum):
     FATAL = "[!!FATAL!!]"
 
 class VPRImageProcessor: # main ROS class
-    def __init__(self, ros=False):
+    def __init__(self, ros=False, init_netvlad=False, init_hybridnet=False, cuda=False, dims=None):
 
         self.clearImageVariables()
         self.clearOdomVariables()
-        self.ros = ros
+        self.ros            = ros
+        self.cuda           = cuda
+        self.init_netvlad   = init_netvlad
+        self.init_hybridnet = init_hybridnet
+
+        if not dims is None:
+            self.IMG_DIMS = dims
+
+        if self.init_netvlad:
+            if dims is None: raise Exception("init_netvlad specified true but dims not provided")
+            self.netvlad = NetVLAD_Container(cuda=self.cuda, ngpus=int(self.cuda), logger=lambda x: self.print(x, State.DEBUG), dims=self.IMG_DIMS)
+
+        if self.init_hybridnet:
+            if dims is None: raise Exception("init_hybridnet specified true but dims not provided")
+            self.hybridnet = HybridNet_Container(cuda=self.cuda, logger=lambda x: self.print(x, State.DEBUG), dims=self.IMG_DIMS)
+
 
     def print(self, text, state):
     # Print function helper
@@ -90,7 +106,7 @@ class VPRImageProcessor: # main ROS class
             sys.exit()
         return self.SET_DICT
 
-    def loadImageFeatures(self, img_paths, feat_type, img_dims):
+    def loadImageFeatures(self, img_paths, fttype_in, img_dims):
     # Load in images
 
         if not isinstance(img_paths, list):
@@ -98,31 +114,26 @@ class VPRImageProcessor: # main ROS class
                 self.print("[loadImageFeatures] img_paths is of type str and not type list. Wrapping in a list to proceed.")
                 img_paths = [img_paths]
             else:
-                raise Exception("img_paths provided is not of type list.")
+                raise Exception("[loadImageFeatures] img_paths provided is not of type list.")
 
-        if isinstance(feat_type, list):
-            if not len(feat_type):
-                raise Exception("feat_type provided is an empty list.")
-            if not all(isinstance(i, FeatureType) for i in feat_type):
-                raise Exception("feat_type provided is a list, but contains elements which are not of type FeatureType.")
-        elif not isinstance(feat_type, FeatureType):
-            raise Exception("feat_type provided is not of type FeatureType.")
+        if not isinstance(fttype_in, list):
+            fttypes = [fttype_in]
         else:
-            feat_type = [feat_type]
+            fttypes = fttype_in
+        if not all([isinstance(fttype, FeatureType) for fttype in fttypes]):
+            raise Exception("[loadImageFeatures] fttype_in provided contains elements that are not of type FeatureType")
+        if any([fttype == FeatureType.NONE for fttype in fttypes]):
+            raise Exception("[loadImageFeatures] fttype_in provided contains at least one FeatureType.NONE")
         
         self.IMG_DIMS = img_dims
         self.IMG_PATHS = img_paths
+        img_set_names = [os.path.basename(img_path) for img_path in self.IMG_PATHS]
 
         try:
-            self.IMG_FEATS = {}
-            for fttype in feat_type:
-                self.IMG_FEATS[enum_name(fttype)]  = {}
-                for img_path in self.IMG_PATHS:
-                    img_set_name = os.path.basename(img_path)
-                    self._IMG_DIR = img_path
-                    self.print("[loadImageFeatures] Loading set [%s] %s" % (enum_name(fttype), str(img_path)), State.INFO)
-                    self.processImageDataset(fttype)
-                    self.IMG_FEATS[enum_name(fttype)][img_set_name] = self._IMG_FEATS
+            self.IMG_FEATS = dict.fromkeys([enum_name(fttype) for fttype in fttypes], dict.fromkeys(img_set_names)) # init empty
+            for img_path in self.IMG_PATHS:
+                self.print("[loadImageFeatures] Loading set %s >>%s<<" % (str(self.IMG_PATHS), str(img_path)), State.INFO)
+                self.processImageDataset(img_path, fttypes)
             self.IMAGES_LOADED = True
             return len(self.IMG_PATHS)
     
@@ -131,52 +142,77 @@ class VPRImageProcessor: # main ROS class
             self.clearImageVariables()
             return 0
 
-    def processImageDataset(self, fttype): 
+    def processImageDataset(self, img_path, fttype_in): 
     # Extract images and their features from path
     # Store in array and return them.
-
-        self.print("[processImageDataset] Attempting to process images from: %s" % (self._IMG_DIR), State.DEBUG)
-        imPath_list = np.sort(os.listdir(self._IMG_DIR))
-        imPath_list = [os.path.join(self._IMG_DIR, f) for f in imPath_list]
-
-        self.__IMG_FEATS = []
-
-        if len(imPath_list) > 0:
-            for i, imPath in tqdm(enumerate(imPath_list)):
-                frame = cv2.imread(imPath)[:, :, ::-1]
-                feat = self.getFeat(frame, fttype=fttype) # fttype: 'downsampled_patchNorm' or 'downsampled_raw'
-                self.__IMG_FEATS.append(feat)
-            self._IMG_FEATS = np.stack(self.__IMG_FEATS, axis=0)
-        else:
-            raise Exception("[processImageDataset] No files at path - cannot continue.")
     
-    def getFeat(self, im, fttype, dims=None):
+        img_set_name    = os.path.basename(img_path)
+        img_file_paths  = [os.path.join(img_path, f) for f in np.sort(os.listdir(img_path))]
+
+        if not len(img_file_paths):
+            raise Exception("[processImageDataset] No files at path - cannot continue.")
+        
+        self.print("[processImageDataset] Attempting to process images for directory: %s" % (img_set_name), State.DEBUG)
+        image_list      = []
+        for img_file_path in tqdm(img_file_paths):
+            image_list.append(cv2.imread(img_file_path)[:, :, ::-1])
+
+        for fttype in fttype_in:
+            self.print("[processImageDataset] Loading set %s >>%s<<" % (str(list(self.IMG_FEATS.keys())), str(enum_name(fttype))), State.DEBUG)
+            self.IMG_FEATS[str(enum_name(fttype))][img_set_name] = self.getFeat(image_list, fttype)
+    
+    def getFeat(self, im, fttype_in, dims=None):
     # Get features from im, using VPRImageProcessor's set image dimensions.
-    # Specify type via fttype= (from FeatureType enum)
+    # Specify type via fttype_in= (from FeatureType enum; list of FeatureType elements is also handled)
     # Can override the dimensions with dims= (two-element positive integer tuple)
     # Returns feature array, as a flattened array
 
         if dims is None: # should be almost always unless testing an override
             if not (self.IMG_DIMS[0] > 0 and self.IMG_DIMS[1] > 0):
-                raise Exception("[getFeat] Image dimension not set!")
+                raise Exception("[getFeat] image dimensions are invalid")
             else:
                 dims = self.IMG_DIMS
-        if fttype == FeatureType.NONE:
-            raise Exception("[getFeat] Feature type not set!")
+        if not isinstance(fttype_in, list):
+            fttypes = [fttype_in]
+        else:
+            fttypes = fttype_in
+        if not all([isinstance(fttype, FeatureType) for fttype in fttypes]):
+            raise Exception("[getFeat] fttype_in provided contains elements that are not of type FeatureType")
+        if any([fttype == FeatureType.NONE for fttype in fttypes]):
+            raise Exception("[getFeat] fttype_in provided contains at least one FeatureType.NONE")
         try:
-            imr = cv2.resize(im, dims)
-            ft = cv2.cvtColor(imr, cv2.COLOR_RGB2GRAY)
-            if fttype == FeatureType.RAW:
-                ft_ready = ft.flatten()
-            elif fttype == FeatureType.PATCHNORM:
-                ft_ready = self.patchNormaliseImage(ft, 8).flatten()
-            elif fttype == FeatureType.HYBRID:
-                raise Exception("Not implemented")
-            elif fttype == FeatureType.NETVLAD:
-                raise Exception("Not implemented")
-            else:
-                raise Exception("fttype not recognised.")
-            return ft_ready
+            ft_list     = []
+            req_mode    = isinstance(im, list)
+
+            for fttype in fttypes:
+                if (fttype == FeatureType.RAW or fttype == FeatureType.PATCHNORM):
+                    if not req_mode:
+                        im = [im]
+                    ft_ready_list = []
+                    for i in tqdm(im):
+                        imr = cv2.resize(i, dims)
+                        ft  = cv2.cvtColor(imr, cv2.COLOR_RGB2GRAY)
+                        if fttype == FeatureType.PATCHNORM:
+                            ft = self.patchNormaliseImage(ft, 8)
+                        ft_ready_list.append(ft.flatten())
+                    if len(ft_ready_list) == 1:
+                        ft_ready = ft_ready_list[0]
+                    else:
+                        ft_ready = np.stack(ft_ready_list)
+                elif fttype == FeatureType.HYBRID:
+                    if not self.init_hybridnet: 
+                        raise Exception("[getFeat] FeatureType.HYBRID provided but VPRImageProcessor not initialised with init_hybridnet=True")
+                    ft_ready = self.hybridnet.getFeat(im)
+                elif fttype == FeatureType.NETVLAD:
+                    if not self.init_netvlad: 
+                        raise Exception("[getFeat] FeatureType.NETVLAD provided but VPRImageProcessor not initialised with init_netvlad=True")
+                    ft_ready = self.netvlad.getFeat(im)
+                else:
+                    raise Exception("[getFeat] fttype not recognised.")
+                ft_list.append(ft_ready)
+            if len(ft_list) == 1: 
+                return ft_list[0]
+            return ft_list
         except Exception as e:
             raise Exception("[getFeat] Feature vector could not be constructed.\nCode: %s" % (e))
 

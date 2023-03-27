@@ -3,6 +3,7 @@
 # import rospkg
 from aarapsi_intro_pack import FeatureType, VPRImageProcessor
 import rospkg
+import rospy
 from aarapsi_intro_pack.core.helper_tools import vis_dict
 import numpy as np
 import copy
@@ -13,9 +14,11 @@ import sys
 ### Example usage:
 if __name__ == '__main__':
 
+    rospy.init_node("test", log_level=rospy.DEBUG)
+
     PACKAGE_NAME        = 'aarapsi_intro_pack'
 
-    FEAT_TYPE           = [FeatureType.RAW, FeatureType.PATCHNORM] # Feature Type
+    FEAT_TYPE           = [FeatureType.RAW, FeatureType.PATCHNORM, FeatureType.HYBRID, FeatureType.NETVLAD] # Feature Type
     REF_ROOT            = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/"
     DATABASE_PATH       = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/compressed_sets/"
     DATABASE_PATH_FILT  = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/compressed_sets/filt"
@@ -30,8 +33,8 @@ if __name__ == '__main__':
                             #REF_ROOT + SET_NAMES[0] + "/panorama"]
     REF_ODOM_PATH       = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/" + SET_NAMES[0] + "/odometry.csv"
 
-    ip = VPRImageProcessor() # reinit just to clean house
     IMG_DIMS = (sizes[3],)*2
+    ip = VPRImageProcessor(cuda=True, init_hybridnet=True, init_netvlad=True, dims=IMG_DIMS) 
     ip.npzDatabaseLoadSave(DATABASE_PATH, SET_NAMES[0], REF_IMG_PATHS, REF_ODOM_PATH, FEAT_TYPE, IMG_DIMS, do_save=True)
     print(type(ip.SET_DICT['img_feats']['RAW']['forward'].flatten()[0]))
     print(type(ip.SET_DICT['img_feats']['PATCHNORM']['forward'].flatten()[0]))
