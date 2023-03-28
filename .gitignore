@@ -10,4 +10,5 @@ src/CMakeLists.txt
 *:Zone.Identifier
 *.caffemodel
 *.avi
+*.pcd
 svmmodel_*.npz
