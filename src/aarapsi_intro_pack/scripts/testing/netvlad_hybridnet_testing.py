@@ -29,7 +29,7 @@ DATABASE_PATH_FILT  = PACKAGE_PATH + "/data/compressed_sets/filt"
 #SET_NAMES           = [ 's1_ccw_o0_e0_a0', 's1_ccw_o0_e0_a1', 's1_ccw_o0_e0_a2', 's1_cw_o0_e0_a0', \
 #                        's2_ccw_o0_e0_a0', 's2_ccw_o0_e1_a0', 's2_ccw_o1_e0_a0', 's2_cw_o0_e1_a0']
 SET_NAMES           = ['test_library']
-SIZES               = [ 8, 16, 32, 64, 128, 400]
+SIZES               = [ 32, 64, 128, 192]
 
 REF_IMG_PATHS       = [ REF_ROOT + SET_NAMES[0] + "/forward", ]#\
                         #REF_ROOT + SET_NAMES[0] + "/left", \

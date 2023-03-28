@@ -164,24 +164,9 @@ class VPRImageProcessor: # main ROS class
             self.print("[processImageDataset] Using seed_raw_image_data for directory: %s" % (img_set_name), State.DEBUG)
             image_list      = seed_raw_image_data[img_path]
 
-        # check if RAW is in fttype, if not, add for speed boost to netvlad and hybridnet
-        force_add_raw = False
-        fttype_in = list(set(fttype_in)) # remove duplicates
-        if (FeatureType.NETVLAD in fttype_in) or (FeatureType.HYBRIDNET in fttype_in):
-            if FeatureType.RAW in fttype_in:
-                fttype_in.remove(FeatureType.RAW)
-            else:
-                self.print("[processImageDataset] Forcing addition of RAW fttype, will be removed at end.", State.DEBUG)
-                force_add_raw = True
-            fttype_in.insert(0, FeatureType.RAW)
-
         for fttype in fttype_in:
             self.print("[processImageDataset] Loading set %s >>%s<<" % (str(list(self.IMG_FEATS.keys())), str(enum_name(fttype))), State.DEBUG)
             self.IMG_FEATS[str(enum_name(fttype))][img_set_name] = copy.deepcopy(self.getFeat(image_list, fttype))
-
-        if force_add_raw: 
-            self.print("[processImageDataset] Removing forced addition of RAW fttype.", State.DEBUG)
-            self.IMG_FEATS.pop(str(enum_name(FeatureType.RAW)))
     
     def getFeat(self, im, fttype_in, dims=None):
     # Get features from im, using VPRImageProcessor's set image dimensions.

@@ -17,9 +17,9 @@ from aarapsi_intro_pack import FeatureType, VPRImageProcessor
 ### Example usage:
 if __name__ == '__main__':
 
-    do_plotting = False
+    do_plotting = True
     make_videos = False
-    gen_new_set = True
+    gen_new_set = False
 
     rospy.init_node("test", log_level=rospy.DEBUG)
 
@@ -50,6 +50,8 @@ if __name__ == '__main__':
         ip          = VPRImageProcessor(cuda=True, init_hybridnet=True, init_netvlad=True, dims=IMG_DIMS) 
         ip.npzDatabaseLoadSave(DATABASE_PATH, SET_NAMES[0], REF_IMG_PATHS, REF_ODOM_PATH, FEAT_TYPE, IMG_DIMS, do_save=True)
 
+        vis_dict(ip.SET_DICT)
+        sys.exit()
         # Perform discretisation operation:
         prefilt     = copy.deepcopy(ip.SET_DICT)
         filtered    = ip.discretise(keep='average', mode='position', metrics={'x': 0.1, 'y': 0.1, 'yaw': (10*2*np.pi/360)})
@@ -126,8 +128,7 @@ if __name__ == '__main__':
     if gen_new_set:
         ## Iterate through multiple:
         for SET_NAME in SET_NAMES:
-            REF_IMG_PATHS   = [ REF_ROOT + SET_NAME + "/forward", \
-                                REF_ROOT + SET_NAME + "/panorama"]
+            REF_IMG_PATHS   = [ REF_ROOT + SET_NAME + "/forward" ]
             REF_ODOM_PATH   = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/" + SET_NAME + "/odometry.csv"
 
             # generate seed_raw_image_data

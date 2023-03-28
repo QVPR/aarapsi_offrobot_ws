@@ -183,6 +183,7 @@ class NetVLAD_Container:
             image_encoding = self.model.encoder(input_data)
             vlad_global = self.model.pool(image_encoding)
             get_pca_encoding(self.model, vlad_global)
+        torch.cuda.empty_cache()
 
     def input_transform(self):
         return transforms.Compose([
@@ -245,7 +246,7 @@ class NetVLAD_Container:
                                  pin_memory  = self.cuda)
 
         with torch.no_grad():
-            self.model.eval()
+            
             db_feat = np.empty((len(dataset_clean), int(self.config['global_params']['num_pcs'])), dtype=np.float32)
             if use_tqdm: iteration_obj = tqdm(dataLoader)
             else: iteration_obj = dataLoader
