@@ -16,6 +16,7 @@ patch_sklearn()
 from sklearn import svm
 from sklearn.preprocessing import StandardScaler
 
+from aarapsi_intro_pack.core.enum_tools import enum_name
 from aarapsi_intro_pack.core.file_system_tools import scan_directory
 from aarapsi_intro_pack.vpr_simple import VPRImageProcessor, FeatureType
 from aarapsi_intro_pack.vpred import *
@@ -34,8 +35,8 @@ class SVMModelProcessor: # main ROS class
         self.models_dir     = models_dir
         self.ros            = ros
         # for making new models:
-        self.cal_qry_ip     = VPRImageProcessor(ros=self.ros)
-        self.cal_ref_ip     = VPRImageProcessor(ros=self.ros)
+        self.cal_qry_ip     = VPRImageProcessor(ros=self.ros) # all else defaults to False or None which we want :)
+        self.cal_ref_ip     = VPRImageProcessor(ros=self.ros) # all else defaults to False or None which we want :)
 
         if not (model is None):
             if isinstance(model, str):
@@ -43,20 +44,21 @@ class SVMModelProcessor: # main ROS class
             elif isinstance(model, dict):
                 self.load_model_params(model)
                 if try_gen and (not self.model_ready):
-                    self.generate_model(model['database_path'], model['qry'], model['ref'], model['img_dims'], model['folder'])
+                    self.generate_model(model['database_path'], model['qry'], model['ref'], model['img_dims'], model['folder'], model['ft_type'])
             else:
                 raise Exception("Model type not supported. Valid types: str, dict")
             if not self.model_ready:
                 raise Exception("Model load failed.")
             self._print("[SVMModelProcessor] Model Ready.", State.INFO)
 
-    def generate_model(self, database_path, cal_qry_dataset, cal_ref_dataset, img_dims, folder, save=True):
+    def generate_model(self, database_path, cal_qry_dataset, cal_ref_dataset, img_dims, folder, ft_type, save=True):
         # store for access in saving operation:
         self.database_path      = database_path
         self.cal_qry_dataset    = cal_qry_dataset
         self.cal_ref_dataset    = cal_ref_dataset 
         self.img_dims           = img_dims
         self.folder             = folder
+        self.feat_type          = ft_type
         self.model_ready        = False
 
         # generate:
@@ -189,10 +191,10 @@ class SVMModelProcessor: # main ROS class
     def _load_cal_data(self):
         # Process calibration data (only needs to be done once)
         self._print("Loading calibration query data set...", State.DEBUG)
-        if not self.cal_qry_ip.npzLoader(self.database_path, self.cal_qry_dataset, self.img_dims):
+        if not self.cal_qry_ip.npzLoader(self.database_path, self.cal_qry_dataset, img_dims=self.img_dims): # dims is needed bc cal_xxx_ip initialised without specifying.
             raise Exception('Query load failed.')
         self._print("Loading calibration reference data set...", State.DEBUG)
-        if not self.cal_ref_ip.npzLoader(self.database_path, self.cal_ref_dataset, self.img_dims):
+        if not self.cal_ref_ip.npzLoader(self.database_path, self.cal_ref_dataset, img_dims=self.img_dims): # dims is needed bc cal_xxx_ip initialised without specifying.
             raise Exception('Reference load failed.')
 
     def _clean_cal_data(self):
@@ -208,8 +210,8 @@ class SVMModelProcessor: # main ROS class
         self.actual_match_cal = np.arange(len(self.features_calqry))
 
     def _calibrate(self):
-        self.features_calqry                = np.array(self.cal_qry_ip.SET_DICT['img_feats'][self.folder])
-        self.features_calref                = np.array(self.cal_ref_ip.SET_DICT['img_feats'][self.folder])
+        self.features_calqry                = np.array(self.cal_qry_ip.SET_DICT['img_feats'][enum_name(self.feat_type)][self.folder])
+        self.features_calref                = np.array(self.cal_ref_ip.SET_DICT['img_feats'][enum_name(self.feat_type)][self.folder])
         self.odom_calqry                    = self.cal_qry_ip.SET_DICT['odom']
         self.odom_calref                    = self.cal_ref_ip.SET_DICT['odom']
         self._clean_cal_data()
@@ -269,7 +271,7 @@ class SVMModelProcessor: # main ROS class
     def _make(self):
         params_dict         = dict(ref=self.cal_ref_dataset, qry=self.cal_qry_dataset, \
                                     img_dims=self.img_dims, folder=self.folder, \
-                                    database_path=self.database_path)
+                                    database_path=self.database_path, ft_type=self.feat_type)
         model_dict          = dict(svm=self.svm_model, scaler=self.scaler, rstd=self.rstd, rmean=self.rmean, factors=[self.factor1_cal, self.factor2_cal])
         self.model          = dict(params=params_dict, model=model_dict)
         self.model_ready    = True
@@ -295,6 +297,7 @@ class SVMModelProcessor: # main ROS class
         self.factor2_cal        = None
         self.features_calqry    = []
         self.features_calref    = []
+        self.feat_type          = FeatureType.NONE
         self.odom_calqry        = {}
         self.odom_calref        = {}
         self.model              = {}
@@ -337,8 +340,9 @@ class SVMModelProcessor: # main ROS class
 #     img_dims = (64, 64)
 #     folder = 'forward'
 #     model = "svmmodel_20230308"
-#     model_params = dict(ref=ref, qry=qry, img_dims=img_dims, folder=folder, database_path=dbp)
-#     #test = SVMModelProcessor(model_dir).generate_model(dbp, qry, ref, img_dims, folder).save_model(check_exists=True)
+#     ft_type = FeatureType.RAW
+#     model_params = dict(ref=ref, qry=qry, img_dims=img_dims, folder=folder, database_path=dbp, ft_type=ft_type)
+#     #test = SVMModelProcessor(model_dir).generate_model(dbp, qry, ref, img_dims, folder, ft_type).save_model(check_exists=True)
 
 #     # These are all valid methods to load a model:
 #     test = SVMModelProcessor(model_dir, model=model) # init and load by name

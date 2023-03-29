@@ -17,7 +17,7 @@ from scipy.spatial.distance import cdist
 from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped # Our custom msg structures
 from aarapsi_intro_pack import VPRImageProcessor, Tolerance_Mode, FeatureType, labelImage, makeImage, grey2dToColourMap, \
                                 doMtrxFig, updateMtrxFig, doDVecFig, updateDVecFig, doOdomFig, updateOdomFig
-from aarapsi_intro_pack.core.enum_tools import enum_value_options, enum_get
+from aarapsi_intro_pack.core.enum_tools import enum_value_options, enum_get, enum_name
 from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_positive_two_int_tuple, check_positive_int, check_bool, check_str_list
 
 class mrc: # main ROS class
@@ -29,8 +29,11 @@ class mrc: # main ROS class
                     time_history_length=20, frame_id="base_link", \
                     node_name='vpr_all_in_one', anon=True, log_level=2\
                 ):
+        
+        self.NAMESPACE              = namespace
+        self.NODENAME               = node_name
 
-        rospy.init_node(node_name, anonymous=anon, log_level=log_level)
+        rospy.init_node(self.NODENAME, anonymous=anon, log_level=log_level)
         rospy.loginfo('Starting %s node.' % (node_name))
 
         ## Parse all the inputs:
@@ -45,7 +48,6 @@ class mrc: # main ROS class
         self.REF_IMG_PATH           = ref_images_path
         self.REF_ODOM_PATH          = ref_odometry_path
 
-        self.NAMESPACE              = namespace
         self.FEED_TOPIC             = image_feed_input
         self.ODOM_TOPIC             = odometry_input
 
@@ -73,9 +75,9 @@ class mrc: # main ROS class
         self.bridge                 = CvBridge() # to convert sensor_msgs/(Compressed)Image to cv2.
 
         # Process reference data (only needs to be done once)
-        self.image_processor        = VPRImageProcessor(ros=True)
+        self.image_processor        = VPRImageProcessor(ros=True, init_hybridnet=True, init_netvlad=True, cuda=True, dims=self.IMG_DIMS)
         try:
-            self.ref_dict               = self.image_processor.npzDatabaseLoadSave(self.DATABASE_PATH, self.REF_DATA_NAME, \
+            self.ref_dict           = self.image_processor.npzDatabaseLoadSave(self.DATABASE_PATH, self.REF_DATA_NAME, \
                                                                                 self.REF_IMG_PATH, self.REF_ODOM_PATH, \
                                                                                 self.FEAT_TYPE, self.IMG_DIMS, do_save=False)
         except:
@@ -83,36 +85,30 @@ class mrc: # main ROS class
 
         self.img_folder             = 'forward'
 
+        self._compress_on           = {'topic': "/compressed", 'image': CompressedImage, 'label': CompressedImageLabelStamped}
+        self._compress_off          = {'topic': "", 'image': Image, 'label': ImageLabelStamped}
         # Handle ROS details for input topics:
         if self.COMPRESS_IN:
-            self.in_img_tpc_mode    = "/compressed"
-            self.in_image_type      = CompressedImage
-            self.in_label_type      = CompressedImageLabelStamped
+            self.INPUTS             = self._compress_on
         else:
-            self.in_img_tpc_mode    = ""
-            self.in_image_type      = Image
-            self.in_label_type      = ImageLabelStamped
+            self.INPUTS             = self._compress_off
         # Handle ROS details for output topics:
         if self.COMPRESS_OUT:
-            self.out_img_tpc_mode   = "/compressed"
-            self.out_image_type     = CompressedImage
-            self.out_label_type     = CompressedImageLabelStamped
+            self.OUTPUTS            = self._compress_on
         else:
-            self.out_img_tpc_mode   = ""
-            self.out_image_type     = Image
-            self.out_label_type     = ImageLabelStamped
+            self.OUTPUTS            = self._compress_off
         
         if self.MAKE_IMAGE:
-            self.vpr_feed_pub       = rospy.Publisher(self.NAMESPACE + "/image" + self.out_img_tpc_mode, self.out_image_type, queue_size=1)
+            self.vpr_feed_pub       = rospy.Publisher(self.NAMESPACE + "/image" + self.OUTPUTS['topic'], self.OUTPUTS['image'], queue_size=1)
 
         if self.MAKE_LABEL:
-            self.img_sub            = rospy.Subscriber(self.FEED_TOPIC + self.in_img_tpc_mode, self.in_image_type, self.img_callback, queue_size=1) 
+            self.img_sub            = rospy.Subscriber(self.FEED_TOPIC + self.INPUTS['topic'], self.INPUTS['image'], self.img_callback, queue_size=1) 
             self.odom_sub           = rospy.Subscriber(self.ODOM_TOPIC, Odometry, self.odom_callback, queue_size=1)
-            self.vpr_label_pub      = rospy.Publisher(self.NAMESPACE + "/label" + self.out_img_tpc_mode, self.out_label_type, queue_size=1)
-            self.rolling_mtrx       = rospy.Publisher(self.NAMESPACE + "/matrices/rolling" + self.out_img_tpc_mode, self.out_image_type, queue_size=1)
+            self.vpr_label_pub      = rospy.Publisher(self.NAMESPACE + "/label" + self.OUTPUTS['topic'], self.OUTPUTS['label'], queue_size=1)
+            self.rolling_mtrx       = rospy.Publisher(self.NAMESPACE + "/matrices/rolling" + self.OUTPUTS['topic'], self.OUTPUTS['image'], queue_size=1)
             self.rolling_mtrx_img   = np.zeros((len(self.ref_dict['odom']['position']['x']), len(self.ref_dict['odom']['position']['x']))) # Make similarity matrix figure
         else:
-            self.vpr_label_sub      = rospy.Subscriber(self.NAMESPACE + "/label" + self.in_img_tpc_mode, self.in_label_type, self.label_callback, queue_size=1)
+            self.vpr_label_sub      = rospy.Subscriber(self.NAMESPACE + "/label" + self.INPUTS['topic'], self.INPUTS['label'], self.label_callback, queue_size=1)
 
         if self.DO_PLOTTING:
             self.fig, self.axes     = plt.subplots(1, 3, figsize=(15,4))
@@ -196,7 +192,7 @@ class mrc: # main ROS class
     def getMatchInd(self, ft_qry, metric='euclidean'):
     # top matching reference index for query
 
-        dMat = cdist(self.ref_dict['img_feats'][self.img_folder], np.matrix(ft_qry), metric) # metric: 'euclidean' or 'cosine'
+        dMat = cdist(self.ref_dict['img_feats'][enum_name(self.FEAT_TYPE)][self.img_folder], np.matrix(ft_qry), metric) # metric: 'euclidean' or 'cosine'
         mInd = np.argmin(dMat[:])
         return mInd, dMat
     
@@ -222,7 +218,7 @@ class mrc: # main ROS class
         else:
             ros_image_to_pub = self.bridge.cv2_to_imgmsg(cv2_img, "bgr8")
             ros_matrix_to_pub = nmrc.bridge.cv2_to_imgmsg(mtrx_rgb, "bgr8")
-        struct_to_pub = self.out_label_type()
+        struct_to_pub = self.OUTPUTS['label']()
             
         ros_image_to_pub.header.stamp = rospy.Time.now()
         ros_image_to_pub.header.frame_id = fid
@@ -267,7 +263,7 @@ def main_loop(nmrc):
         matchInd        = nmrc.request.data.matchId
         trueInd         = nmrc.request.data.trueId
     else:
-        ft_qry          = nmrc.image_processor.getFeat(nmrc.store_query, nmrc.FEAT_TYPE)
+        ft_qry          = nmrc.image_processor.getFeat(nmrc.store_query, nmrc.FEAT_TYPE, use_tqdm=False)
         matchInd, dvc   = nmrc.getMatchInd(ft_qry, nmrc.MATCH_METRIC) # Find match
         trueInd         = -1 #default; can't be negative.
 
@@ -314,9 +310,12 @@ def main_loop(nmrc):
 
     if nmrc.MAKE_IMAGE: # set by node input
         # make labelled match+query (processed) images and add icon for groundtruthing (if enabled):
-        cv2_image_to_pub = makeImage(np.reshape(np.array(ft_qry), nmrc.ref_dict['img_dims']), \
-                                     np.reshape(np.array(nmrc.ref_dict['img_feats'][nmrc.img_folder])[matchInd,:], nmrc.ref_dict['img_dims']), \
-                                        nmrc.ICON_DICT['icon'], icon_size=nmrc.ICON_DICT['size'], icon_dist=nmrc.ICON_DICT['dist'])
+        ft_ref = nmrc.ref_dict['img_feats'][enum_name(nmrc.FEAT_TYPE)][nmrc.img_folder][matchInd]
+        if nmrc.FEAT_TYPE in [FeatureType.NETVLAD, FeatureType.HYBRIDNET]:
+            reshape_dims = (64, 64)
+        else:
+            reshape_dims = nmrc.IMG_DIMS
+        cv2_image_to_pub = makeImage(ft_qry, ft_ref, reshape_dims, nmrc.ICON_DICT)
         
         # Measure timing for recalculating average rate:
         this_time = rospy.Time.now()

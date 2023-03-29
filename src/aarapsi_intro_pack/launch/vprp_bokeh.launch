@@ -29,8 +29,8 @@
     <arg name="plotter_node_name"       default="vpr_plotter"/>
     <arg name="anon"                    default="True"/>
 
-    <arg name="img_dims"                default="(32,32)"/>
-    <arg name="ft_type"                 default="1"/>
+    <arg name="img_dims"                default="(400,400)"/>
+    <arg name="ft_type"                 default="3"/>  <!-- 1: RAW, 2: PATCHNORM, 3: NETVLAD, 4: HYBRIDNET -->
 
     <arg name="tol_mode"                default="2"/>
     <arg name="tol_thresh"              default="1.0"/>
@@ -76,7 +76,7 @@
     </node>
     
     <node if="$(arg launch_plotter)" pkg="aarapsi_intro_pack" type="vpr_bokeh_server.py" name="$(arg plotter_node_name)" output="screen" 
-        args="$(arg dataset_name) $(arg database_path)
+        args="$(arg dataset_name) $(arg database_path) -F $(arg ft_type) 
               -Ci $(arg plotter_compress_in) -r $(arg rate) -i $(arg img_dims)
               -N $(arg plotter_node_name) -a $(arg anon) -n $(arg namespace) -f $(arg frame_id)
               -P $(arg port) -A $(arg address) -V $(arg log_level)">

@@ -14,7 +14,7 @@ import cv2
 from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped, MonitorDetails, \
                                     ImageDetails, CompressedImageDetails, CompressedMonitorDetails# Our custom structures
 from aarapsi_intro_pack.srv import GetSVMField, GetSVMFieldResponse
-from aarapsi_intro_pack import VPRImageProcessor, SVMModelProcessor, Tolerance_Mode, FeatureType
+from aarapsi_intro_pack import SVMModelProcessor, Tolerance_Mode, FeatureType
 from aarapsi_intro_pack.vpred import *
 from aarapsi_intro_pack.core.enum_tools import enum_value_options, enum_get
 from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_positive_two_int_tuple, check_bool
@@ -30,7 +30,10 @@ class mrc: # main ROS class
                     print_prediction=True, log_level=2\
                 ):
 
-        rospy.init_node(node_name, anonymous=anon, log_level=log_level)
+        self.NAMESPACE          = namespace
+        self.NODENAME           = node_name
+
+        rospy.init_node(self.NODENAME, anonymous=anon, log_level=log_level)
         rospy.loginfo('Starting %s node.' % (node_name))
 
         self.rate_num           = rate_num # Hz, maximum of between 21-26 Hz (varies) with no plotting/image/ground truth/compression.
@@ -38,7 +41,6 @@ class mrc: # main ROS class
 
         self.PRINT_PREDICTION   = print_prediction
 
-        #!# Tune Here:
         self.FEAT_TYPE          = ft_type
         self.IMG_DIMS           = img_dims
         self.FRAME_ID           = frame_id
@@ -50,9 +52,7 @@ class mrc: # main ROS class
 
         self.CAL_FOLDER         = cal_folder
         self.REF_FOLDER         = ref_folder
-
-        self.NAMESPACE          = namespace
-        self.NODENAME           = node_name
+        
         self.FEED_TOPIC         = image_feed_input
         self.ODOM_TOPIC         = odometry_input
 
@@ -65,45 +65,24 @@ class mrc: # main ROS class
 
         self.bridge                 = CvBridge() # to convert sensor_msgs/(Compressed)Image to cv2.
 
+        self._compress_on           = {'topic': "/compressed", 'image': CompressedImage, 'label': CompressedImageLabelStamped, 
+                                       'img_dets': CompressedImageDetails, 'mon_dets': CompressedMonitorDetails}
+        self._compress_off          = {'topic': "", 'image': Image, 'label': ImageLabelStamped, 
+                                       'img_dets': ImageDetails, 'mon_dets': MonitorDetails}
+        # Handle ROS details for input topics:
         if self.COMPRESS_IN:
-            self.in_img_tpc_mode    = "/compressed"
-            self.in_image_type      = CompressedImage
-            self.in_label_type      = CompressedImageLabelStamped
-            self.in_img_dets        = CompressedImageDetails
-            self.in_mon_dets        = CompressedMonitorDetails
+            self.INPUTS             = self._compress_on
         else:
-            self.in_img_tpc_mode    = ""
-            self.in_image_type      = Image
-            self.in_label_type      = ImageLabelStamped
-            self.in_img_dets        = ImageDetails
-            self.in_mon_dets        = MonitorDetails
-
+            self.INPUTS             = self._compress_off
+        # Handle ROS details for output topics:
         if self.COMPRESS_OUT:
-            self.out_img_tpc_mode   = "/compressed"
-            self.out_image_type     = CompressedImage
-            self.out_label_type     = CompressedImageLabelStamped
-            self.out_img_dets       = CompressedImageDetails
-            self.out_mon_dets       = CompressedMonitorDetails
+            self.OUTPUTS            = self._compress_on
         else:
-            self.out_img_tpc_mode   = ""
-            self.out_image_type     = Image
-            self.out_label_type     = ImageLabelStamped
-            self.out_img_dets       = ImageDetails
-            self.out_mon_dets       = MonitorDetails
+            self.OUTPUTS            = self._compress_off
 
-
-        ## Process reference data (only needs to be done once)
-        # rospy.logdebug("Loading reference data set...")
-        # self.ref_ip                 = VPRImageProcessor(ros=True)
-        # if not self.ref_ip.npzLoader(self.DATABASE_PATH, self.REF_DATA_NAME, self.IMG_DIMS):
-        #    self.exit()
-        ## Currently reference data set is unused / unnecessary
-        ## Kept in case we want to do some comparisons to the calibration data
-        ## Commented out to reduce initialisation time.
-
-        self.vpr_label_sub          = rospy.Subscriber(self.NAMESPACE + "/label" + self.in_img_tpc_mode, self.in_label_type, self.label_callback, queue_size=1)
-        self.svm_state_pub          = rospy.Publisher(self.NAMESPACE + "/monitor/state" + self.in_img_tpc_mode, self.out_mon_dets, queue_size=1)
-        self.svm_field_pub          = rospy.Publisher(self.NAMESPACE + "/monitor/field" + self.in_img_tpc_mode, self.out_img_dets, queue_size=1)
+        self.vpr_label_sub          = rospy.Subscriber(self.NAMESPACE + "/label" + self.INPUTS['topic'], self.INPUTS['label'], self.label_callback, queue_size=1)
+        self.svm_state_pub          = rospy.Publisher(self.NAMESPACE + "/monitor/state" + self.INPUTS['topic'], self.OUTPUTS['mon_dets'], queue_size=1)
+        self.svm_field_pub          = rospy.Publisher(self.NAMESPACE + "/monitor/field" + self.INPUTS['topic'], self.OUTPUTS['img_dets'], queue_size=1)
         self.svm_field_srv          = rospy.Service(self.NAMESPACE + '/GetSVMField', GetSVMField, self.handle_GetSVMField)
 
         # flags to denest main loop:
@@ -117,7 +96,7 @@ class mrc: # main ROS class
 
         # Set up SVM
         self.svm_model_params       = dict(ref=self.CAL_REF_DATA_NAME, qry=self.CAL_QRY_DATA_NAME, img_dims=self.IMG_DIMS, \
-                                           folder=self.CAL_FOLDER, database_path=self.DATABASE_PATH)
+                                           folder=self.CAL_FOLDER, ft_type=self.FEAT_TYPE, database_path=self.DATABASE_PATH)
         self.svm_model_dir          = rospkg.RosPack().get_path(rospkg.get_package_name(os.path.abspath(__file__))) + "/cfg/svm_models"
         self.svm                    = SVMModelProcessor(self.svm_model_dir, model=self.svm_model_params, ros=True)
         self.main_ready = True
@@ -135,7 +114,7 @@ class mrc: # main ROS class
             success = False
 
         ans.success = success
-        ans.topic = self.NAMESPACE + "/monitor/field" + self.in_img_tpc_mode
+        ans.topic = self.NAMESPACE + "/monitor/field" + self.INPUTS['topic']
         rospy.logdebug("Service requested [Gen=%s], Success=%s" % (str(req.generate), str(success)))
         return ans
 
@@ -164,7 +143,7 @@ class mrc: # main ROS class
         else:
             ros_img_to_pub = self.bridge.cv2_to_imgmsg(img_np_crop_resize, "bgr8")
 
-        self.SVM_FIELD_MSG                          = self.out_img_dets()
+        self.SVM_FIELD_MSG                          = self.OUTPUTS['img_dets']()
         self.SVM_FIELD_MSG.image                    = ros_img_to_pub
         self.SVM_FIELD_MSG.image.header.frame_id    = self.FRAME_ID
         self.SVM_FIELD_MSG.image.header.stamp       = rospy.Time.now()
@@ -202,7 +181,7 @@ def main_loop(nmrc):
                 rospy.logerr('integrity prediction: %r [gt: %r]' % (y_pred_rt, gt_state_bool))
 
     # Populate and publish SVM State details
-    ros_msg                 = nmrc.out_mon_dets()
+    ros_msg                 = nmrc.OUTPUTS['mon_dets']()
     ros_msg.queryImage      = nmrc.label.queryImage
     ros_msg.header.stamp    = rospy.Time.now()
     ros_msg.header.frame_id	= str(nmrc.FRAME_ID)

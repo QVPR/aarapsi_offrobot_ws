@@ -8,6 +8,7 @@ import rospkg
 import argparse as ap
 import os
 import sys
+import copy
 
 from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped, \
     ImageDetails, CompressedImageDetails, MonitorDetails, CompressedMonitorDetails # Our custom msg structures
@@ -17,6 +18,7 @@ from aarapsi_intro_pack import VPRImageProcessor, FeatureType, \
 
 from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_bool, check_positive_two_int_tuple, check_positive_int, check_valid_ip
 from aarapsi_intro_pack.core.helper_tools import formatException, getArrayDetails
+from aarapsi_intro_pack.core.enum_tools import enum_value_options, enum_get
 
 from functools import partial
 from bokeh.layouts import column, row
@@ -28,11 +30,15 @@ import logging
 logging.getLogger('bokeh').setLevel(logging.CRITICAL) # hide bokeh superfluous messages
 
 class mrc: # main ROS class
-    def __init__(self, database_path, dataset_name, compress_in=True, rate_num=20.0, \
+    def __init__(self, database_path, dataset_name, ft_type=FeatureType.RAW, compress_in=True, rate_num=20.0, \
                  img_dims=(64,64), namespace='/vpr_nodes', node_name='vpr_all_in_one', \
                  anon=True, log_level=2):
+        
 
-        rospy.init_node(node_name, anonymous=anon, log_level=log_level)
+        self.NODENAME               = node_name
+        self.NAMESPACE              = namespace
+
+        rospy.init_node(self.NODENAME, anonymous=anon, log_level=log_level)
         rospy.loginfo('Starting %s node.' % (node_name))
 
         # flags to denest main loop:
@@ -47,39 +53,37 @@ class mrc: # main ROS class
 
         self.DATABASE_PATH          = database_path
         self.REF_DATA_NAME          = dataset_name
-        self.IMG_DIMS               = img_dims
 
-        self.NAMESPACE              = namespace
+        self.FEAT_TYPE              = ft_type
+        self.IMG_DIMS               = img_dims
 
         #!# Enable/Disable Features:
         self.COMPRESS_IN            = compress_in
 
         self.bridge                 = CvBridge() # to convert sensor_msgs/(Compressed)Image to cv2.
 
+        self._compress_on           = {'topic': "/compressed", 'image': CompressedImage, 'label': CompressedImageLabelStamped, 
+                                       'img_dets': CompressedImageDetails, 'mon_dets': CompressedMonitorDetails}
+        self._compress_off          = {'topic': "", 'image': Image, 'label': ImageLabelStamped, 
+                                       'img_dets': ImageDetails, 'mon_dets': MonitorDetails}
+        
         # Handle ROS details for input topics:
         if self.COMPRESS_IN:
-            self.in_img_tpc_mode   = "/compressed"
-            self.in_image_type     = CompressedImage
-            self.in_label_type     = CompressedImageLabelStamped
-            self.in_img_dets       = CompressedImageDetails
-            self.in_mon_dets       = CompressedMonitorDetails
+            self.INPUTS             = self._compress_on
         else:
-            self.in_img_tpc_mode   = ""
-            self.in_image_type     = Image
-            self.in_label_type     = ImageLabelStamped
-            self.in_img_dets       = ImageDetails
-            self.in_mon_dets       = MonitorDetails
+            self.INPUTS             = self._compress_off
 
-        self.svm_state_sub          = rospy.Subscriber(self.NAMESPACE + "/monitor/state" + self.in_img_tpc_mode, MonitorDetails, self.state_callback, queue_size=1)
-        self.svm_field_sub          = rospy.Subscriber(self.NAMESPACE + "/monitor/field" + self.in_img_tpc_mode, self.in_img_dets, self.field_callback, queue_size=1)
+        self.svm_state_sub          = rospy.Subscriber(self.NAMESPACE + "/monitor/state" + self.INPUTS['topic'], self.INPUTS['mon_dets'], self.state_callback, queue_size=1)
+        self.svm_field_sub          = rospy.Subscriber(self.NAMESPACE + "/monitor/field" + self.INPUTS['topic'], self.INPUTS['img_dets'], self.field_callback, queue_size=1)
         self.srv_GetSVMField        = rospy.ServiceProxy(self.NAMESPACE + '/GetSVMField', GetSVMField)
         self.srv_GetSVMField_once   = False
         
         # Process reference data (only needs to be done once)
-        self.image_processor        = VPRImageProcessor(ros=True)
-        if not self.image_processor.npzLoader(self.DATABASE_PATH, self.REF_DATA_NAME, self.IMG_DIMS):
+        self.image_processor        = VPRImageProcessor(ros=True, init_hybridnet=False, init_netvlad=False, cuda=False, dims=self.IMG_DIMS)
+        if not self.image_processor.npzLoader(self.DATABASE_PATH, self.REF_DATA_NAME):
             exit()
-        self.ref_dict               = self.image_processor.SET_DICT
+        self.ref_dict               = copy.deepcopy(self.image_processor.SET_DICT) # store reference data
+        self.image_processor.destroy() # destroy to save client memory
 
         # Prepare figures:
         iframe_start          = """<iframe src="http://131.181.33.60:8080/stream?topic="""
@@ -188,7 +192,9 @@ def do_args():
     parser.add_argument('--namespace', '-n', default="/vpr_nodes", help="Specify namespace for topics (default: %(default)s).")
     parser.add_argument('--img-dims', '-i', type=check_positive_two_int_tuple, default=(64,64), help='Set image dimensions (default: %(default)s).')
     parser.add_argument('--log-level', '-V', type=int, choices=[1,2,4,8,16], default=2, help="Specify ROS log level (default: %(default)s).")
-
+    ft_options, ft_options_text = enum_value_options(FeatureType, skip=FeatureType.NONE)
+    parser.add_argument('--ft-type', '-F', type=int, choices=ft_options, default=ft_options[0], \
+                        help='Choose feature type for extraction, types: %s (default: %s).' % (ft_options_text, '%(default)s'))
     # Parse args...
     raw_args = parser.parse_known_args()
     return vars(raw_args[0])
@@ -199,7 +205,7 @@ def main(doc):
         args = do_args()
 
         # Hand to class ...
-        nmrc = mrc(args['database-path'], args['dataset-name'], compress_in=args['compress_in'], \
+        nmrc = mrc(args['database-path'], args['dataset-name'], enum_get(args['ft_type'], FeatureType), compress_in=args['compress_in'], \
                    rate_num=args['rate'], namespace=args['namespace'], img_dims=args['img_dims'], \
                     node_name=args['node_name'], anon=args['anon'], log_level=args['log_level'])
 

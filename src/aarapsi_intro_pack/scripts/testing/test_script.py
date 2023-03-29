@@ -17,9 +17,9 @@ from aarapsi_intro_pack import FeatureType, VPRImageProcessor
 ### Example usage:
 if __name__ == '__main__':
 
-    do_plotting = True
+    do_plotting = False
     make_videos = False
-    gen_new_set = False
+    gen_new_set = True
 
     rospy.init_node("test", log_level=rospy.DEBUG)
 
@@ -33,7 +33,7 @@ if __name__ == '__main__':
 
     SET_NAMES           = [ 's1_ccw_o0_e0_a0', 's1_ccw_o0_e0_a1', 's1_ccw_o0_e0_a2', 's1_cw_o0_e0_a0',\
                             's2_ccw_o0_e0_a0', 's2_ccw_o0_e1_a0', 's2_ccw_o1_e0_a0', 's2_cw_o0_e1_a0']
-    SIZES               = [ 32, 64, 128, 192 ]
+    SIZES               = [ 32, 64, 128, 192, 400 ]
 
     if do_plotting or make_videos:    
         # specific variables:
@@ -47,7 +47,7 @@ if __name__ == '__main__':
         REF_ODOM_PATH   = rospkg.RosPack().get_path(PACKAGE_NAME) + "/data/" + SET_NAME + "/odometry.csv"
 
         # Load in dataset:
-        ip          = VPRImageProcessor(cuda=True, init_hybridnet=True, init_netvlad=True, dims=IMG_DIMS) 
+        ip          = VPRImageProcessor(ros=True, cuda=True, init_hybridnet=True, init_netvlad=True, dims=IMG_DIMS) 
         ip.npzDatabaseLoadSave(DATABASE_PATH, SET_NAMES[0], REF_IMG_PATHS, REF_ODOM_PATH, FEAT_TYPE, IMG_DIMS, do_save=True)
 
         vis_dict(ip.SET_DICT)
@@ -145,7 +145,7 @@ if __name__ == '__main__':
 
             for i in SIZES:
                 IMG_DIMS = (i, i)
-                ip = VPRImageProcessor(cuda=True, init_hybridnet=True, init_netvlad=True, dims=IMG_DIMS) # reinit to clean object
+                ip = VPRImageProcessor(ros=True, cuda=True, init_hybridnet=True, init_netvlad=True, dims=IMG_DIMS) # reinit to clean object
                 ip.npzDatabaseLoadSave(DATABASE_PATH, SET_NAME, REF_IMG_PATHS, REF_ODOM_PATH, FEAT_TYPE, IMG_DIMS, do_save=True, seed_raw_image_data=seed_raw_image_data)
                 
                 # create filtered database:

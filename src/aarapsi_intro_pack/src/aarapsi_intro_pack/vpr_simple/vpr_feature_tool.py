@@ -182,10 +182,10 @@ class VPRImageProcessor: # main ROS class
             image_list      = seed_raw_image_data[img_path]
 
         for fttype in fttype_in:
-            self.print("[processImageDataset] Loading set %s >>%s<<" % (str(list(self.IMG_FEATS.keys())), str(enum_name(fttype))), State.DEBUG)
-            self.IMG_FEATS[str(enum_name(fttype))][img_set_name] = copy.deepcopy(self.getFeat(image_list, fttype))
+            self.print("[processImageDataset] Loading set %s >>%s<<" % (str(list(self.IMG_FEATS.keys())), enum_name(fttype)), State.DEBUG)
+            self.IMG_FEATS[enum_name(fttype)][img_set_name] = copy.deepcopy(self.getFeat(image_list, fttype, use_tqdm=True))
     
-    def getFeat(self, im, fttype_in, dims=None):
+    def getFeat(self, im, fttype_in, dims=None, use_tqdm=False):
     # Get features from im, using VPRImageProcessor's set image dimensions.
     # Specify type via fttype_in= (from FeatureType enum; list of FeatureType elements is also handled)
     # Can override the dimensions with dims= (two-element positive integer tuple)
@@ -215,7 +215,9 @@ class VPRImageProcessor: # main ROS class
                     if not req_mode:
                         im = [im]
                     ft_ready_list = []
-                    for i in tqdm(im):
+                    if use_tqdm: iter_obj = tqdm(im)
+                    else: iter_obj = im
+                    for i in iter_obj:
                         imr = cv2.resize(i, dims)
                         ft  = cv2.cvtColor(imr, cv2.COLOR_RGB2GRAY)
                         if fttype == FeatureType.PATCHNORM:
@@ -228,11 +230,11 @@ class VPRImageProcessor: # main ROS class
                 elif fttype == FeatureType.HYBRIDNET:
                     if not self.init_hybridnet: 
                         raise Exception("[getFeat] FeatureType.HYBRIDNET provided but VPRImageProcessor not initialised with init_hybridnet=True")
-                    ft_ready = self.hybridnet.getFeat(im)
+                    ft_ready = self.hybridnet.getFeat(im, use_tqdm=use_tqdm)
                 elif fttype == FeatureType.NETVLAD:
                     if not self.init_netvlad: 
                         raise Exception("[getFeat] FeatureType.NETVLAD provided but VPRImageProcessor not initialised with init_netvlad=True")
-                    ft_ready = self.netvlad.getFeat(im)
+                    ft_ready = self.netvlad.getFeat(im, use_tqdm=use_tqdm)
                 else:
                     raise Exception("[getFeat] fttype not recognised.")
                 ft_list.append(ft_ready)
@@ -546,8 +548,6 @@ class VPRImageProcessor: # main ROS class
         del self.IMAGES_LOADED 
         del self.TIMES
         del self.SET_DICT
-        del self.init_netvlad
-        del self.init_hybridnet
         if self.allow_build:
             if self.init_hybridnet:
                 self.hybridnet.destroy()
@@ -555,4 +555,6 @@ class VPRImageProcessor: # main ROS class
             if self.init_netvlad:
                 self.netvlad.destroy()
                 del self.netvlad
+        del self.init_netvlad
+        del self.init_hybridnet
 

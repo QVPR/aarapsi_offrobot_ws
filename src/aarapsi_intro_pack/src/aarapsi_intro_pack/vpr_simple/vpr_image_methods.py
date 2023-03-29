@@ -21,19 +21,30 @@ def labelImage(img_in, textstring, org_in, colour):
                                 color=colour, thickness=2, lineType=cv2.LINE_AA)
     return img_B
 
-def makeImage(query_raw, match_raw, icon_to_use, icon_size=100, icon_dist=0):
+def convert_img_to_uint8(img, reshape=None, resize=None, dstack=True):
+    if not type(img.flatten()[0]) == np.uint8:
+        _min      = np.min(img)
+        _max      = np.max(img)
+        _img_norm = (img - _min) / (_max - _min)
+        img       = np.array(_img_norm * 255, dtype=np.uint8)
+    if not (reshape is None):
+        img = np.reshape(img, reshape)
+    if not (resize is None):
+        img = cv2.resize(img, resize, interpolation = cv2.INTER_AREA)
+    if dstack: return np.dstack((img,)*3)
+    return img
+
+def makeImage(query_raw, match_raw, img_dims, icon_dict):
 # Produce image to be published via ROS that has a side-by-side style of match (left) and query (right)
 # Query image comes in via cv2 variable query_raw
 # Match image comes in from ref_dict
 
-    query_img = cv2.resize(query_raw, (500,500), interpolation = cv2.INTER_AREA)
-    match_img = cv2.resize(match_raw, (500,500), interpolation = cv2.INTER_AREA)
+    match_img   = convert_img_to_uint8(match_raw, reshape=img_dims, resize=(500,500), dstack=(not len(match_raw.shape) == 3))
+    query_img   = convert_img_to_uint8(query_raw, reshape=img_dims, resize=(500,500), dstack=(not len(query_raw.shape) == 3))
 
-    # Handle B&W images:
-    if len(match_img.shape) == 2:
-        match_img = np.repeat(match_img[:,:,np.newaxis], 3, axis=2)
-    if len(query_img.shape) == 2:
-        query_img = np.repeat(query_img[:,:,np.newaxis], 3, axis=2)
+    icon_to_use = icon_dict['icon']
+    icon_size   = icon_dict['size']
+    icon_dist   = icon_dict['dist']
     
     match_img_lab = labelImage(match_img, "Reference", (20,40), (100,255,100))
     query_img_lab = labelImage(query_img, "Query", (20,40), (100,255,100))
