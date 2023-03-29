@@ -12,9 +12,16 @@ import sys
 import csv
 from enum import Enum
 from tqdm import tqdm
-from aarapsi_intro_pack.core.enum_tools import enum_name
-from aarapsi_intro_pack.vpr_classes import NetVLAD_Container, HybridNet_Container
-from aarapsi_intro_pack.core.helper_tools import formatException
+try:
+    from aarapsi_intro_pack.core.enum_tools import enum_name
+    from aarapsi_intro_pack.vpr_classes import NetVLAD_Container, HybridNet_Container
+    from aarapsi_intro_pack.core.helper_tools import formatException
+    PYTHON_LIBRARY_STATUS = True
+except:
+    print("This file is running without knowledge of, or outside of, the aarapsi_intro_pack python library")
+    print("This is OK, however feature extraction and building new compressed libraries is disabled.")
+    print("Although best efforts have been made to ensure compatibility, issues may arise.")
+    PYTHON_LIBRARY_STATUS = False
 
 # For image processing type
 class FeatureType(Enum):
@@ -34,24 +41,28 @@ class State(Enum):
 
 class VPRImageProcessor: # main ROS class
     def __init__(self, ros=False, init_netvlad=False, init_hybridnet=False, cuda=False, dims=None):
-
+        global PYTHON_LIBRARY_STATUS
         self.clearImageVariables()
         self.clearOdomVariables()
         self.ros            = ros
         self.cuda           = cuda
         self.init_netvlad   = init_netvlad
         self.init_hybridnet = init_hybridnet
+        self.allow_build    = PYTHON_LIBRARY_STATUS
 
         if not dims is None:
             self.IMG_DIMS = dims
 
-        if self.init_netvlad:
-            if dims is None: raise Exception("init_netvlad specified true but dims not provided")
-            self.netvlad = NetVLAD_Container(cuda=self.cuda, ngpus=int(self.cuda), logger=lambda x: self.print(x, State.DEBUG), dims=self.IMG_DIMS)
+        if not self.allow_build and (self.init_hybridnet or self.init_hybridnet):
+            self.print("Initialisation request for hybridnet or netvlad but generation of new libraries and feature extraction is disabled")
+        elif self.allow_build:
+            if self.init_netvlad:
+                if dims is None: raise Exception("init_netvlad specified true but dims not provided")
+                self.netvlad = NetVLAD_Container(cuda=self.cuda, ngpus=int(self.cuda), logger=lambda x: self.print(x, State.DEBUG), dims=self.IMG_DIMS)
 
-        if self.init_hybridnet:
-            if dims is None: raise Exception("init_hybridnet specified true but dims not provided")
-            self.hybridnet = HybridNet_Container(cuda=self.cuda, logger=lambda x: self.print(x, State.DEBUG), dims=self.IMG_DIMS)
+            if self.init_hybridnet:
+                if dims is None: raise Exception("init_hybridnet specified true but dims not provided")
+                self.hybridnet = HybridNet_Container(cuda=self.cuda, logger=lambda x: self.print(x, State.DEBUG), dims=self.IMG_DIMS)
 
     def print(self, text, state):
     # Print function helper
@@ -97,6 +108,8 @@ class VPRImageProcessor: # main ROS class
     # img_dims a two-integer positive tuple containing image width and height (width, height) in pixels
     # Returns full dictionary; empty on fail.
 
+        assert self.allow_build == True, "library generation is disabled"
+
         self.print("[loadFull] Attempting to load library.", State.DEBUG)
         if not self.loadImageFeatures(img_paths, feat_type, img_dims, seed_raw_image_data): raise Exception("Fatal")
         if not len(self.loadOdometry(odom_path)): raise Exception("Fatal")
@@ -108,6 +121,8 @@ class VPRImageProcessor: # main ROS class
 
     def loadImageFeatures(self, img_paths, fttype_in, img_dims, seed_raw_image_data=None):
     # Load in images
+
+        assert self.allow_build == True, "library generation is disabled"
 
         if not isinstance(img_paths, list):
             if isinstance(img_paths, str):
@@ -148,6 +163,8 @@ class VPRImageProcessor: # main ROS class
     def processImageDataset(self, img_path, fttype_in, seed_raw_image_data=None): 
     # Extract images and their features from path
     # Store in array and return them.
+
+        assert self.allow_build == True, "library generation is disabled"
     
         img_set_name    = os.path.basename(img_path)
         if seed_raw_image_data is None:
@@ -173,6 +190,8 @@ class VPRImageProcessor: # main ROS class
     # Specify type via fttype_in= (from FeatureType enum; list of FeatureType elements is also handled)
     # Can override the dimensions with dims= (two-element positive integer tuple)
     # Returns feature array, as a flattened array
+
+        assert self.allow_build == True, "feature extraction is disabled"
 
         if dims is None: # should be almost always unless testing an override
             if not (self.IMG_DIMS[0] > 0 and self.IMG_DIMS[1] > 0):
@@ -225,6 +244,9 @@ class VPRImageProcessor: # main ROS class
 
     def loadOdometry(self, odom_path):
     # Load in odometry from path
+
+        assert self.allow_build == True, "library generation is disabled"
+
         self.ODOM_PATH = odom_path
         try:
             self.processOdomDataset()
@@ -239,6 +261,8 @@ class VPRImageProcessor: # main ROS class
     def processOdomDataset(self):
     # Extract from position .csv at path, full odometry
     # Return these as nice lists/dicts
+
+        assert self.allow_build == True, "library generation is disabled"
 
         self.print("[processOdomDataset] Attempting to process odometry from: %s" % (self.ODOM_PATH), State.DEBUG)
         self.TIMES = []
@@ -344,14 +368,17 @@ class VPRImageProcessor: # main ROS class
         except Exception as e:
             raise Exception("[_npzLoader] Error: %s" % (e))
 
-    def npzLoader(self, database_path, filename, img_dims):
+    def npzLoader(self, database_path, filename, img_dims=None):
     # Public method. Specify directory path containing .npz file (database_path) and the filename (or an incomplete but unique file prefix)
+        if img_dims is None:
+            if self.IMG_DIMS is None:
+                raise Exception("img_dims not provided, and VPRImageProcessor was not initialised with dimensions")
+            img_dims = self.IMG_DIMS
         try:
-
             while 'x' in filename.split('_')[-1]: # clean image size off end
                 filename = filename[0:-1-len(filename.split('_')[-1])]
             filename_extended = filename + "_%dx" % (img_dims[0])
-            if not (self.IMG_DIMS[0] == self.IMG_DIMS[1]):
+            if not (img_dims[0] == img_dims[1]):
                 filename_extended = filename_extended + "%d" % (img_dims[1])
 
             dict_keys, imgs_keys, odom_keys = self._npzLoader(database_path, filename_extended)
@@ -521,8 +548,11 @@ class VPRImageProcessor: # main ROS class
         del self.SET_DICT
         del self.init_netvlad
         del self.init_hybridnet
-        self.hybridnet.destroy()
-        self.netvlad.destroy()
-        del self.hybridnet
-        del self.netvlad
+        if self.allow_build:
+            if self.init_hybridnet:
+                self.hybridnet.destroy()
+                del self.hybridnet
+            if self.init_netvlad:
+                self.netvlad.destroy()
+                del self.netvlad
 
