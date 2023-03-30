@@ -59,7 +59,7 @@ def updateDVecFig(mInd, tInd, dvc, odom_in, fig_handles):
 # update (overwrite) visualisation with new data:
 
     # overwrite with new distance vector / image distance:
-    max_val = max(dvc[:])
+    max_val = np.max(dvc[:])
     fig_handles['dis'].set_xdata(range(len(dvc)))
     fig_handles['dis'].set_ydata(dvc/max_val)
     # overwrite with new lowest match:
@@ -207,7 +207,7 @@ def updateCntrFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
         return
     
     ros_msg_img = nmrc.svm_field_msg.image
-    if nmrc.COMPRESS_IN:
+    if nmrc.COMPRESS_IN.get():
         cv_msg_img = nmrc.bridge.compressed_imgmsg_to_cv2(ros_msg_img, "passthrough")
     else:
         cv_msg_img = nmrc.bridge.imgmsg_to_cv2(ros_msg_img, "passthrough")
@@ -255,12 +255,48 @@ def updateDVecFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
 # Use old handles (mat, tru) and crunched distance vector (dvc)
     spd = cdist(np.transpose(np.matrix([odom_in['position']['x'],odom_in['position']['y']])), \
         np.matrix([odom_in['position']['x'][mInd], odom_in['position']['y'][mInd]]))
-    spd_max_val = max(spd[:])
-    dvc_max_val = max(dvc[:])
+    spd_max_val = np.max(spd[:])
+    dvc_max_val = np.max(dvc[:])
     nmrc.fig_dvec_handles['spd'].data_source.data = {'x': list(range(len(spd-1))), 'y': spd/spd_max_val}
     nmrc.fig_dvec_handles['dvc'].data_source.data = {'x': list(range(len(dvc-1))), 'y': dvc/dvc_max_val}
     nmrc.fig_dvec_handles['mat'].data_source.data = {'x': [mInd], 'y': [dvc[mInd]/dvc_max_val]}
     nmrc.fig_dvec_handles['tru'].data_source.data = {'x': [tInd], 'y': [dvc[tInd]/dvc_max_val]}
+
+##################################################################
+#### Distance Vector Figure: do and update
+
+def doFDVCFigBokeh(nmrc, odom_in):
+# Set up distance vector figure
+
+    fig_dvec    = figure(title="Distance Vector", width=500, height=250, \
+                            x_axis_label = 'Index', y_axis_label = 'Distance', \
+                            x_range = (0, len(odom_in['position']['x'])), y_range = (0, 1.2))
+    fig_dvec    = disable_toolbar(fig_dvec)
+    dvc_plotted = fig_dvec.line([],   [], color="black",            legend_label="Warped Distance Vector") # distance vector
+    mat_plotted = fig_dvec.circle([], [], color="red",     size=7,  legend_label="Selected") # matched image (lowest distance)
+    tru_plotted = fig_dvec.circle([], [], color="magenta", size=7,  legend_label="True") # true image (correct match)
+
+    fig_dvec.legend.location=(0, 140)
+    fig_dvec.legend.orientation='horizontal'
+    fig_dvec.legend.border_line_alpha=0
+    fig_dvec.legend.background_fill_alpha=0
+
+    return {'fig': fig_dvec, 'dvc': dvc_plotted, 'mat': mat_plotted, 'tru': tru_plotted}
+
+def updateFDVCFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
+# Update DVec figure with new data (match->mInd, true->tInd)
+# Use old handles (mat, tru) and crunched distance vector (dvc)
+    spd = cdist(np.transpose(np.matrix([odom_in['position']['x'],odom_in['position']['y']])), \
+        np.matrix([odom_in['position']['x'][mInd], odom_in['position']['y'][mInd]]))
+    spd_max_val = np.max(spd[:])
+    dvc_max_val = np.max(dvc[:])
+    spd_norm = np.array(spd).flatten()/spd_max_val 
+    dvc_norm = np.array(dvc).flatten()/dvc_max_val
+    spd_x_dvc = (spd_norm**2 + dvc_norm) / 2
+    nmrc.fig_fdvc_handles['dvc'].data_source.data = {'x': list(range(len(dvc-1))), 'y': spd_x_dvc}
+    nmrc.fig_fdvc_handles['mat'].data_source.data = {'x': [mInd], 'y': [spd_x_dvc[mInd]]}
+    nmrc.fig_fdvc_handles['tru'].data_source.data = {'x': [tInd], 'y': [spd_x_dvc[tInd]]}
+
 
 ##################################################################
 #### Odometry Figure: do and update
@@ -329,3 +365,37 @@ def updateOdomFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
 
         nmrc.fig_odom_handles['seg'].data_source.stream(new_mod_data, rollover=num_points)
         nmrc.fig_odom_handles['mat'].data_source.stream(new_mat_data, rollover=num_points)
+
+##################################################################
+#### Distance Vector Figure: do and update
+
+def doSVMMFigBokeh(nmrc, odom_in):
+# Set up distance vector figure
+
+    fig_dvec    = figure(title="Distance Vector", width=500, height=250, \
+                            x_axis_label = 'Index', y_axis_label = 'Distance', \
+                            x_range = (0, len(odom_in['position']['x'])), y_range = (0, 1.2))
+    fig_dvec    = disable_toolbar(fig_dvec)
+    spd_plotted = fig_dvec.line([],   [], color="orange",           legend_label="Spatial Separation") # Distance from match
+    dvc_plotted = fig_dvec.line([],   [], color="black",            legend_label="Distance Vector") # distance vector
+    mat_plotted = fig_dvec.circle([], [], color="red",     size=7,  legend_label="Selected") # matched image (lowest distance)
+    tru_plotted = fig_dvec.circle([], [], color="magenta", size=7,  legend_label="True") # true image (correct match)
+
+    fig_dvec.legend.location=(0, 140)
+    fig_dvec.legend.orientation='horizontal'
+    fig_dvec.legend.border_line_alpha=0
+    fig_dvec.legend.background_fill_alpha=0
+
+    return {'fig': fig_dvec, 'spd': spd_plotted, 'dvc': dvc_plotted, 'mat': mat_plotted, 'tru': tru_plotted}
+
+def updateSVMMFigBokeh(nmrc, mInd, tInd, dvc, odom_in):
+# Update DVec figure with new data (match->mInd, true->tInd)
+# Use old handles (mat, tru) and crunched distance vector (dvc)
+    spd = cdist(np.transpose(np.matrix([odom_in['position']['x'],odom_in['position']['y']])), \
+        np.matrix([odom_in['position']['x'][mInd], odom_in['position']['y'][mInd]]))
+    spd_max_val = np.max(spd[:])
+    dvc_max_val = np.max(dvc[:])
+    nmrc.fig_svmm_handles['spd'].data_source.data = {'x': list(range(len(spd-1))), 'y': spd/spd_max_val}
+    nmrc.fig_svmm_handles['dvc'].data_source.data = {'x': list(range(len(dvc-1))), 'y': dvc/dvc_max_val}
+    nmrc.fig_svmm_handles['mat'].data_source.data = {'x': [mInd], 'y': [dvc[mInd]/dvc_max_val]}
+    nmrc.fig_svmm_handles['tru'].data_source.data = {'x': [tInd], 'y': [dvc[tInd]/dvc_max_val]}

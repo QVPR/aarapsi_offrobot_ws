@@ -53,33 +53,33 @@
 
     <arg name="plotter_compress_in"     default="False"/>
 
-    <arg name="log_level"               default="1"/>
+    <arg name="log_level"               default="2"/> <!-- 1: Debug, 2: Info, 4: Warn, 8: Error, 16: Fatal -->
 
     <node if="$(arg launch_webserver)" pkg="web_video_server" type="web_video_server" name="web_video_server" output="screen"/>
     
-    <node if="$(arg launch_cruncher)" pkg="aarapsi_intro_pack" type="vpr_all_in_one.py" name="$(arg cruncher_node_name)" output="screen" 
-        args="$(arg dataset_name) $(arg database_path) $(arg ref_imgs_path) $(arg ref_odom_path)
-              $(arg image_topic_in) $(arg odometry_topic_in) 
-              -Ci $(arg cruncher_compress_in) -Co $(arg cruncher_compress_out) -P $(arg cruncher_do_plotting) -I $(arg cruncher_make_images) -G $(arg cruncher_groundtruth) -L $(arg cruncher_make_labels)
-              -r $(arg rate) -l $(arg time_history_length) -i $(arg img_dims) -F $(arg ft_type) 
-              -t $(arg tol_mode) -T $(arg tol_thresh) -p $(arg icon_info) 
-              -N $(arg cruncher_node_name) -a $(arg anon) -n $(arg namespace) -f $(arg frame_id) -V $(arg log_level)">
-    </node>
-    
-    <node if="$(arg launch_monitor)" pkg="aarapsi_intro_pack" type="vpr_monitor.py" name="$(arg monitor_node_name)" output="screen" 
-        args="$(arg dataset_name) $(arg cal_qry_dataset_name) $(arg cal_ref_dataset_name) $(arg database_path)
-              $(arg image_topic_in) $(arg odometry_topic_in) 
-              -Ci $(arg monitor_compress_in) -Co $(arg monitor_compress_out)
-              -r $(arg rate) -i $(arg img_dims) -F $(arg ft_type) 
-              -t $(arg tol_mode) -T $(arg tol_thresh) -p $(arg print_prediction)
-              -N $(arg monitor_node_name) -a $(arg anon) -n $(arg namespace) -V $(arg log_level)">
-    </node>
-    
-    <node if="$(arg launch_plotter)" pkg="aarapsi_intro_pack" type="vpr_bokeh_server.py" name="$(arg plotter_node_name)" output="screen" 
-        args="$(arg dataset_name) $(arg database_path) -F $(arg ft_type) 
-              -Ci $(arg plotter_compress_in) -r $(arg rate) -i $(arg img_dims)
-              -N $(arg plotter_node_name) -a $(arg anon) -n $(arg namespace) -f $(arg frame_id)
-              -P $(arg port) -A $(arg address) -V $(arg log_level)">
-    </node>
-
+    <group ns="$(arg namespace)">
+        <node if="$(arg launch_cruncher)" pkg="aarapsi_intro_pack" type="vpr_all_in_one.py" name="$(arg cruncher_node_name)" output="screen" 
+            args="$(arg dataset_name) $(arg database_path) $(arg ref_imgs_path) $(arg ref_odom_path)
+                $(arg image_topic_in) $(arg odometry_topic_in) 
+                -Ci $(arg cruncher_compress_in) -Co $(arg cruncher_compress_out) -P $(arg cruncher_do_plotting) -I $(arg cruncher_make_images) -G $(arg cruncher_groundtruth) -L $(arg cruncher_make_labels)
+                -r $(arg rate) -l $(arg time_history_length) -i $(arg img_dims) -F $(arg ft_type) 
+                -t $(arg tol_mode) -T $(arg tol_thresh) -p $(arg icon_info) 
+                -N $(arg cruncher_node_name) -a $(arg anon) -n $(arg namespace) -f $(arg frame_id) -V $(arg log_level)">
+        </node>
+        
+        <node if="$(arg launch_monitor)" pkg="aarapsi_intro_pack" type="vpr_monitor.py" name="$(arg monitor_node_name)" output="screen" 
+            args="$(arg cal_qry_dataset_name) $(arg cal_ref_dataset_name) $(arg database_path)
+                $(arg image_topic_in) $(arg odometry_topic_in) 
+                -Ci $(arg monitor_compress_in) -Co $(arg monitor_compress_out)
+                -r $(arg rate) -i $(arg img_dims) -F $(arg ft_type) -p $(arg print_prediction)
+                -N $(arg monitor_node_name) -a $(arg anon) -n $(arg namespace) -V $(arg log_level)">
+        </node>
+        
+        <node if="$(arg launch_plotter)" pkg="aarapsi_intro_pack" type="vpr_bokeh_server.py" name="$(arg plotter_node_name)" output="screen" 
+            args="$(arg dataset_name) $(arg database_path) -F $(arg ft_type) 
+                -Ci $(arg plotter_compress_in) -r $(arg rate) -i $(arg img_dims)
+                -N $(arg plotter_node_name) -a $(arg anon) -n $(arg namespace) -f $(arg frame_id)
+                -P $(arg port) -A $(arg address) -V $(arg log_level)">
+        </node>
+    </group>
 </launch>

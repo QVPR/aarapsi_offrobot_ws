@@ -3,6 +3,7 @@
 import rospy
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Image, CompressedImage
+from std_msgs.msg import String
 from cv_bridge import CvBridge
 import cv2
 import numpy as np
@@ -15,10 +16,12 @@ import sys
 from scipy.spatial.distance import cdist
 
 from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped # Our custom msg structures
-from aarapsi_intro_pack import VPRImageProcessor, Tolerance_Mode, FeatureType, labelImage, makeImage, grey2dToColourMap, \
-                                doMtrxFig, updateMtrxFig, doDVecFig, updateDVecFig, doOdomFig, updateOdomFig
-from aarapsi_intro_pack.core.enum_tools import enum_value_options, enum_get, enum_name
-from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_positive_two_int_tuple, check_positive_int, check_bool, check_str_list
+from aarapsi_intro_pack.vpr_simple import VPRImageProcessor, Tolerance_Mode, FeatureType, labelImage, makeImage, grey2dToColourMap, \
+                                            doMtrxFig, updateMtrxFig, doDVecFig, updateDVecFig, doOdomFig, updateOdomFig
+from aarapsi_intro_pack.core import enum_value_options, enum_get, enum_name, \
+                                    check_positive_float, check_positive_two_int_tuple, check_positive_int, \
+                                    check_bool, check_str_list, check_enum, check_string, \
+                                    ROS_Param
 
 class mrc: # main ROS class
     def __init__(self, database_path, ref_images_path, ref_odometry_path, image_feed_input, odometry_input, dataset_name, \
@@ -32,54 +35,55 @@ class mrc: # main ROS class
         
         self.NAMESPACE              = namespace
         self.NODENAME               = node_name
+        self.NODESPACE              = "/" + self.NODENAME + "/"
 
         rospy.init_node(self.NODENAME, anonymous=anon, log_level=log_level)
         rospy.loginfo('Starting %s node.' % (node_name))
 
         ## Parse all the inputs:
-        self.rate_num               = rate_num # Hz
-        self.rate_obj               = rospy.Rate(self.rate_num)
+        self.RATE_NUM               = ROS_Param(self.NODESPACE + "rate", rate_num, check_positive_float) # Hz
+        self.rate_obj               = rospy.Rate(self.RATE_NUM.get())
 
-        self.FEAT_TYPE              = ft_type
-        self.IMG_DIMS               = img_dims
+        self.FEAT_TYPE              = ROS_Param("feature_type", enum_name(ft_type), lambda x: check_enum(x, FeatureType, skip=[FeatureType.NONE]), namespace=self.NAMESPACE)
+        self.IMG_DIMS               = ROS_Param("img_dims", img_dims, check_positive_two_int_tuple, namespace=self.NAMESPACE)
 
-        self.DATABASE_PATH          = database_path
-        self.REF_DATA_NAME          = dataset_name
-        self.REF_IMG_PATH           = ref_images_path
-        self.REF_ODOM_PATH          = ref_odometry_path
+        self.DATABASE_PATH          = ROS_Param("database_path", database_path, check_string, namespace=self.NAMESPACE)
+        self.REF_DATA_NAME          = ROS_Param(self.NODESPACE + "ref/data_name", dataset_name, check_string)
+        self.REF_IMG_PATH           = ROS_Param(self.NODESPACE + "ref/images_path", ref_images_path, check_string)
+        self.REF_ODOM_PATH          = ROS_Param(self.NODESPACE + "ref/odometry_path", ref_odometry_path, check_string)
 
         self.FEED_TOPIC             = image_feed_input
         self.ODOM_TOPIC             = odometry_input
 
-        self.TOL_MODE               = tolerance_mode
-        self.TOL_THRES              = tolerance_threshold
+        self.TOL_MODE               = ROS_Param("tolerance/mode", enum_name(tolerance_mode), lambda x: check_enum(x, Tolerance_Mode), namespace=self.NAMESPACE)
+        self.TOL_THRES              = ROS_Param("tolerance/threshold", tolerance_threshold, check_positive_float, namespace=self.NAMESPACE)
 
         self.ICON_SIZE              = icon_settings[0]
         self.ICON_DIST              = icon_settings[1]
         self.ICON_PATH              = rospkg.RosPack().get_path(rospkg.get_package_name(os.path.abspath(__file__))) + "/media"
 
-        self.MATCH_METRIC           = match_metric
-        self.TIME_HIST_LEN          = time_history_length
-        self.FRAME_ID               = frame_id
+        self.MATCH_METRIC           = ROS_Param("match_metric", match_metric, check_string, namespace=self.NAMESPACE)
+        self.TIME_HIST_LEN          = ROS_Param(self.NODESPACE + "time_history_length", time_history_length, check_positive_int)
+        self.FRAME_ID               = ROS_Param("frame_id", frame_id, check_string, namespace=self.NAMESPACE)
 
         #!# Enable/Disable Features (Label topic will always be generated):
-        self.COMPRESS_IN            = compress_in
-        self.COMPRESS_OUT           = compress_out
-        self.DO_PLOTTING            = do_plotting
-        self.MAKE_IMAGE             = do_image
-        self.GROUND_TRUTH           = do_groundtruth
-        self.MAKE_LABEL             = do_label
+        self.COMPRESS_IN            = ROS_Param(self.NODESPACE + "compress/in", compress_in, check_bool)
+        self.COMPRESS_OUT           = ROS_Param(self.NODESPACE + "compress/out", compress_out, check_bool)
+        self.DO_PLOTTING            = ROS_Param(self.NODESPACE + "method/plotting", do_plotting, check_bool)
+        self.MAKE_IMAGE             = ROS_Param(self.NODESPACE + "method/images", do_image, check_bool)
+        self.GROUND_TRUTH           = ROS_Param(self.NODESPACE + "method/groundtruth", do_groundtruth, check_bool)
+        self.MAKE_LABEL             = ROS_Param(self.NODESPACE + "method/label", do_label, check_bool)
 
         self.ego                    = [0.0, 0.0, 0.0] # robot position
 
         self.bridge                 = CvBridge() # to convert sensor_msgs/(Compressed)Image to cv2.
 
         # Process reference data (only needs to be done once)
-        self.image_processor        = VPRImageProcessor(ros=True, init_hybridnet=True, init_netvlad=True, cuda=True, dims=self.IMG_DIMS)
+        self.image_processor        = VPRImageProcessor(ros=True, init_hybridnet=True, init_netvlad=True, cuda=True, dims=self.IMG_DIMS.get())
         try:
-            self.ref_dict           = self.image_processor.npzDatabaseLoadSave(self.DATABASE_PATH, self.REF_DATA_NAME, \
-                                                                                self.REF_IMG_PATH, self.REF_ODOM_PATH, \
-                                                                                self.FEAT_TYPE, self.IMG_DIMS, do_save=False)
+            self.ref_dict           = self.image_processor.npzDatabaseLoadSave(self.DATABASE_PATH.get(), self.REF_DATA_NAME.get(), \
+                                                                                self.REF_IMG_PATH.get(), self.REF_ODOM_PATH.get(), \
+                                                                                self.FEAT_TYPE.get(), self.IMG_DIMS.get(), do_save=False)
         except:
             self.exit()
 
@@ -88,20 +92,22 @@ class mrc: # main ROS class
         self._compress_on           = {'topic': "/compressed", 'image': CompressedImage, 'label': CompressedImageLabelStamped}
         self._compress_off          = {'topic': "", 'image': Image, 'label': ImageLabelStamped}
         # Handle ROS details for input topics:
-        if self.COMPRESS_IN:
+        if self.COMPRESS_IN.get():
             self.INPUTS             = self._compress_on
         else:
             self.INPUTS             = self._compress_off
         # Handle ROS details for output topics:
-        if self.COMPRESS_OUT:
+        if self.COMPRESS_OUT.get():
             self.OUTPUTS            = self._compress_on
         else:
             self.OUTPUTS            = self._compress_off
         
-        if self.MAKE_IMAGE:
+        self.param_checker_sub      = rospy.Subscriber("/vpr_nodes/params_update", String, self.param_callback, queue_size=100)
+
+        if self.MAKE_IMAGE.get():
             self.vpr_feed_pub       = rospy.Publisher(self.NAMESPACE + "/image" + self.OUTPUTS['topic'], self.OUTPUTS['image'], queue_size=1)
 
-        if self.MAKE_LABEL:
+        if self.MAKE_LABEL.get():
             self.img_sub            = rospy.Subscriber(self.FEED_TOPIC + self.INPUTS['topic'], self.INPUTS['image'], self.img_callback, queue_size=1) 
             self.odom_sub           = rospy.Subscriber(self.ODOM_TOPIC, Odometry, self.odom_callback, queue_size=1)
             self.vpr_label_pub      = rospy.Publisher(self.NAMESPACE + "/label" + self.OUTPUTS['topic'], self.OUTPUTS['label'], queue_size=1)
@@ -110,12 +116,12 @@ class mrc: # main ROS class
         else:
             self.vpr_label_sub      = rospy.Subscriber(self.NAMESPACE + "/label" + self.INPUTS['topic'], self.INPUTS['label'], self.label_callback, queue_size=1)
 
-        if self.DO_PLOTTING:
+        if self.DO_PLOTTING.get():
             self.fig, self.axes     = plt.subplots(1, 3, figsize=(15,4))
             self.timer_plot         = rospy.Timer(rospy.Duration(0.1), self.timer_plot_callback) # 10 Hz; Plot rate limiter
 
         # flags to denest main loop:
-        self.new_query              = False # new query image (MAKE_LABEL==True) or new label received (MAKE_LABEL==False)
+        self.new_query              = False # new query image (MAKE_LABEL.get()==True) or new label received (MAKE_LABEL.get()==False)
         self.new_odom               = False # new odometry set
         self.main_ready             = False # rate limiter via timer
         self.do_show                = False # plot rate limiter  via timer
@@ -123,7 +129,7 @@ class mrc: # main ROS class
         self.last_time              = rospy.Time.now()
         self.time_history           = []
 
-        if self.DO_PLOTTING:
+        if self.DO_PLOTTING.get():
             # Prepare figures:
             self.fig.suptitle("Odometry Visualised")
             self.fig_mtrx_handles = doMtrxFig(self.axes[0], self.ref_dict['odom']) # Make simularity matrix figure
@@ -133,14 +139,19 @@ class mrc: # main ROS class
 
         self.ICON_DICT = {'size': self.ICON_SIZE, 'dist': self.ICON_DIST, 'icon': [], 'good': [], 'poor': []}
         # Load icons:
-        if self.MAKE_IMAGE:
+        if self.MAKE_IMAGE.get():
             good_icon = cv2.imread(self.ICON_PATH + "/tick.png", cv2.IMREAD_UNCHANGED)
             poor_icon = cv2.imread(self.ICON_PATH + "/cross.png", cv2.IMREAD_UNCHANGED)
             self.ICON_DICT['good'] = cv2.resize(good_icon, (self.ICON_SIZE, self.ICON_SIZE), interpolation = cv2.INTER_AREA)
             self.ICON_DICT['poor'] = cv2.resize(poor_icon, (self.ICON_SIZE, self.ICON_SIZE), interpolation = cv2.INTER_AREA)
 
         # Last item as it sets a flag that enables main loop execution.
-        self.main_timer             = rospy.Timer(rospy.Duration(1/self.rate_num), self.main_cb) # Main loop rate limiter
+        self.main_timer             = rospy.Timer(rospy.Duration(1/self.RATE_NUM.get()), self.main_cb) # Main loop rate limiter
+
+    def param_callback(self, msg):
+        rospy.logdebug("Param update: %s" % msg.data)
+        if (msg.data in self.RATE_NUM.updates_possible) and not (msg.data in self.RATE_NUM.updates_queued):
+            self.RATE_NUM.updates_queued.append(msg.data)
 
     def main_cb(self, event):
     # Toggle flag to let main loop continue execution
@@ -164,7 +175,7 @@ class mrc: # main ROS class
 
         self.ego                = [msg.data.odom.x, msg.data.odom.y, msg.data.odom.z]
 
-        if self.COMPRESS_IN:
+        if self.COMPRESS_IN.get():
             self.store_query    = self.bridge.compressed_imgmsg_to_cv2(self.request.queryImage, "passthrough")
         else:
             self.store_query    = self.bridge.imgmsg_to_cv2(self.request.queryImage, "passthrough")
@@ -182,17 +193,17 @@ class mrc: # main ROS class
     # /ros_indigosdk_occam/image0(/compressed) (sensor_msgs/(Compressed)Image)
     # Store newest image received
 
-        if self.COMPRESS_IN:
+        if self.COMPRESS_IN.get():
             self.store_query_raw    = self.bridge.compressed_imgmsg_to_cv2(msg, "bgr8")
         else:
             self.store_query_raw    = self.bridge.imgmsg_to_cv2(msg, "passthrough")
-        self.store_query = self.store_query_raw#[10:-1,200:-50]
-        self.new_query          = True
+        self.store_query            = self.store_query_raw#[10:-1,200:-50]
+        self.new_query              = True
         
     def getMatchInd(self, ft_qry, metric='euclidean'):
     # top matching reference index for query
 
-        dMat = cdist(self.ref_dict['img_feats'][enum_name(self.FEAT_TYPE)][self.img_folder], np.matrix(ft_qry), metric) # metric: 'euclidean' or 'cosine'
+        dMat = cdist(self.ref_dict['img_feats'][enum_name(self.FEAT_TYPE.get())][self.img_folder], np.matrix(ft_qry), metric) # metric: 'euclidean' or 'cosine'
         mInd = np.argmin(dMat[:])
         return mInd, dMat
     
@@ -212,7 +223,7 @@ class mrc: # main ROS class
         
         mtrx_rgb = grey2dToColourMap(self.rolling_mtrx_img, dims=(500,500), colourmap=cv2.COLORMAP_JET)
 
-        if self.COMPRESS_OUT:
+        if self.COMPRESS_OUT.get():
             ros_image_to_pub = self.bridge.cv2_to_compressed_imgmsg(cv2_img, "jpg") # jpg (png slower)
             ros_matrix_to_pub = nmrc.bridge.cv2_to_compressed_imgmsg(mtrx_rgb, "jpg") # jpg (png slower)
         else:
@@ -231,15 +242,15 @@ class mrc: # main ROS class
         struct_to_pub.data.matchId = mInd
         struct_to_pub.data.trueId = tInd
         struct_to_pub.data.state = state
-        struct_to_pub.data.compressed = self.COMPRESS_OUT
+        struct_to_pub.data.compressed = self.COMPRESS_OUT.get()
         struct_to_pub.data.matchPath = mPath
         struct_to_pub.header.frame_id = fid
         struct_to_pub.header.stamp = rospy.Time.now()
 
         self.rolling_mtrx.publish(ros_matrix_to_pub)
-        if self.MAKE_IMAGE:
+        if self.MAKE_IMAGE.get():
             self.vpr_feed_pub.publish(ros_image_to_pub) # image feed publisher
-        if self.MAKE_LABEL:
+        if self.MAKE_LABEL.get():
             self.vpr_label_pub.publish(struct_to_pub) # label publisher
 
     def exit(self):
@@ -249,22 +260,22 @@ class mrc: # main ROS class
 def main_loop(nmrc):
 # Main loop process
 
-    if nmrc.do_show and nmrc.DO_PLOTTING: # set by timer callback and node input
+    if nmrc.do_show and nmrc.DO_PLOTTING.get(): # set by timer callback and node input
         nmrc.fig.canvas.draw() # update all fig subplots
         plt.pause(0.001)
         nmrc.do_show = False # clear flag
 
-    if not (nmrc.new_query and (nmrc.new_odom or not nmrc.MAKE_LABEL) and nmrc.main_ready): # denest
+    if not (nmrc.new_query and (nmrc.new_odom or not nmrc.MAKE_LABEL.get()) and nmrc.main_ready): # denest
         rospy.loginfo_throttle(60, "Waiting for a new query.") # print every 60 seconds
         return
 
-    if (not nmrc.MAKE_LABEL): # use label subscriber feed instead
+    if (not nmrc.MAKE_LABEL.get()): # use label subscriber feed instead
         dvc             = np.transpose(np.matrix(nmrc.request.data.dvc))
         matchInd        = nmrc.request.data.matchId
         trueInd         = nmrc.request.data.trueId
     else:
-        ft_qry          = nmrc.image_processor.getFeat(nmrc.store_query, nmrc.FEAT_TYPE, use_tqdm=False)
-        matchInd, dvc   = nmrc.getMatchInd(ft_qry, nmrc.MATCH_METRIC) # Find match
+        ft_qry          = nmrc.image_processor.getFeat(nmrc.store_query, nmrc.FEAT_TYPE.get(), use_tqdm=False)
+        matchInd, dvc   = nmrc.getMatchInd(ft_qry, nmrc.MATCH_METRIC.get()) # Find match
         trueInd         = -1 #default; can't be negative.
 
     # Clear flags:
@@ -272,35 +283,35 @@ def main_loop(nmrc):
     nmrc.new_odom       = False
     nmrc.main_ready     = False
 
-    if nmrc.GROUND_TRUTH:
+    if nmrc.GROUND_TRUTH.get():
         trueInd = nmrc.getTrueInd() # find correct match based on shortest difference to measured odometry
     else:
         nmrc.ICON_DICT['size'] = -1
 
     ground_truth_string = ""
     tolState = 0
-    if nmrc.GROUND_TRUTH: # set by node inputs
+    if nmrc.GROUND_TRUTH.get(): # set by node inputs
         # Determine if we are within tolerance:
         nmrc.ICON_DICT['icon'] = nmrc.ICON_DICT['poor']
-        if nmrc.TOL_MODE == Tolerance_Mode.METRE_CROW_TRUE:
+        if nmrc.TOL_MODE.get() == Tolerance_Mode.METRE_CROW_TRUE:
             tolError = np.sqrt(np.square(nmrc.ref_dict['odom']['position']['x'][trueInd] - nmrc.ego[0]) + \
                     np.square(nmrc.ref_dict['odom']['position']['y'][trueInd] - nmrc.ego[1])) 
             tolString = "MCT"
-        elif nmrc.TOL_MODE == Tolerance_Mode.METRE_CROW_MATCH:
+        elif nmrc.TOL_MODE.get() == Tolerance_Mode.METRE_CROW_MATCH:
             tolError = np.sqrt(np.square(nmrc.ref_dict['odom']['position']['x'][matchInd] - nmrc.ego[0]) + \
                     np.square(nmrc.ref_dict['odom']['position']['y'][matchInd] - nmrc.ego[1])) 
             tolString = "MCM"
-        elif nmrc.TOL_MODE == Tolerance_Mode.METRE_LINE:
+        elif nmrc.TOL_MODE.get() == Tolerance_Mode.METRE_LINE:
             tolError = np.sqrt(np.square(nmrc.ref_dict['odom']['position']['x'][trueInd] - nmrc.ref_dict['odom']['position']['x'][matchInd]) + \
                     np.square(nmrc.ref_dict['odom']['position']['y'][trueInd] - nmrc.ref_dict['odom']['position']['y'][matchInd])) 
             tolString = "ML"
-        elif nmrc.TOL_MODE == Tolerance_Mode.FRAME:
+        elif nmrc.TOL_MODE.get() == Tolerance_Mode.FRAME:
             tolError = np.abs(matchInd - trueInd)
             tolString = "F"
         else:
             raise Exception("Error: Unknown tolerance mode.")
 
-        if tolError < nmrc.TOL_THRES:
+        if tolError < nmrc.TOL_THRES.get():
             nmrc.ICON_DICT['icon'] = nmrc.ICON_DICT['good']
             tolState = 2
         else:
@@ -308,13 +319,13 @@ def main_loop(nmrc):
 
         ground_truth_string = ", Error: %2.2f%s" % (tolError, tolString)
 
-    if nmrc.MAKE_IMAGE: # set by node input
+    if nmrc.MAKE_IMAGE.get(): # set by node input
         # make labelled match+query (processed) images and add icon for groundtruthing (if enabled):
-        ft_ref = nmrc.ref_dict['img_feats'][enum_name(nmrc.FEAT_TYPE)][nmrc.img_folder][matchInd]
-        if nmrc.FEAT_TYPE in [FeatureType.NETVLAD, FeatureType.HYBRIDNET]:
+        ft_ref = nmrc.ref_dict['img_feats'][enum_name(nmrc.FEAT_TYPE.get())][nmrc.img_folder][matchInd]
+        if nmrc.FEAT_TYPE.get() in [FeatureType.NETVLAD, FeatureType.HYBRIDNET]:
             reshape_dims = (64, 64)
         else:
-            reshape_dims = nmrc.IMG_DIMS
+            reshape_dims = nmrc.IMG_DIMS.get()
         cv2_image_to_pub = makeImage(ft_qry, ft_ref, reshape_dims, nmrc.ICON_DICT)
         
         # Measure timing for recalculating average rate:
@@ -323,7 +334,7 @@ def main_loop(nmrc):
         nmrc.last_time = this_time
         nmrc.time_history.append(time_diff.to_sec())
         num_time = len(nmrc.time_history)
-        if num_time > nmrc.TIME_HIST_LEN:
+        if num_time > nmrc.TIME_HIST_LEN.get():
             nmrc.time_history.pop(0)
         time_average = sum(nmrc.time_history) / num_time
 
@@ -335,14 +346,14 @@ def main_loop(nmrc):
     else:
         img_to_pub = nmrc.store_query
 
-    if nmrc.DO_PLOTTING: # set by node input
+    if nmrc.DO_PLOTTING.get(): # set by node input
         # Update odometry visualisation:
         updateMtrxFig(matchInd, trueInd, dvc, nmrc.ref_dict['odom'], nmrc.fig_mtrx_handles)
         updateDVecFig(matchInd, trueInd, dvc, nmrc.ref_dict['odom'], nmrc.fig_dvec_handles)
         updateOdomFig(matchInd, trueInd, dvc, nmrc.ref_dict['odom'], nmrc.fig_odom_handles)
     
     # Make ROS messages
-    nmrc.publish_ros_info(img_to_pub, nmrc.FRAME_ID, trueInd, matchInd, dvc, str(nmrc.ref_dict['image_paths']).replace('\'',''), tolState)
+    nmrc.publish_ros_info(img_to_pub, nmrc.FRAME_ID.get(), trueInd, matchInd, dvc, str(nmrc.ref_dict['image_paths']).replace('\'',''), tolState)
 
 def do_args():
     parser = ap.ArgumentParser(prog="vpr_all_in_one", 

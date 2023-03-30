@@ -6,6 +6,11 @@ from enum import Enum
 from pathlib import Path
 import datetime
 
+try:
+    import rospy # used for printing
+except:
+    pass
+
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt

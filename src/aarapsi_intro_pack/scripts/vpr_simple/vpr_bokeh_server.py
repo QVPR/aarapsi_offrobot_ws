@@ -2,6 +2,7 @@
 
 import rospy
 from sensor_msgs.msg import Image, CompressedImage
+from std_msgs.msg import String
 from cv_bridge import CvBridge
 import numpy as np
 import rospkg
@@ -13,12 +14,14 @@ import copy
 from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped, \
     ImageDetails, CompressedImageDetails, MonitorDetails, CompressedMonitorDetails # Our custom msg structures
 from aarapsi_intro_pack.srv import GetSVMField, GetSVMFieldRequest, GetSVMFieldResponse
-from aarapsi_intro_pack import VPRImageProcessor, FeatureType, \
-    doDVecFigBokeh, doOdomFigBokeh, doCntrFigBokeh, updateDVecFigBokeh, updateOdomFigBokeh, updateCntrFigBokeh
+from aarapsi_intro_pack.vpr_simple import VPRImageProcessor, FeatureType, \
+                                            doDVecFigBokeh, doOdomFigBokeh, doFDVCFigBokeh, doCntrFigBokeh, doSVMMFigBokeh, \
+                                            updateDVecFigBokeh, updateOdomFigBokeh, updateFDVCFigBokeh, updateCntrFigBokeh, updateSVMMFigBokeh
 
-from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_bool, check_positive_two_int_tuple, check_positive_int, check_valid_ip
-from aarapsi_intro_pack.core.helper_tools import formatException, getArrayDetails
-from aarapsi_intro_pack.core.enum_tools import enum_value_options, enum_get
+from aarapsi_intro_pack.core import check_positive_float, check_bool, check_positive_two_int_tuple, check_positive_int, check_valid_ip, check_enum, check_string, \
+                                    formatException, getArrayDetails, \
+                                    enum_value_options, enum_get, enum_name, \
+                                    ROS_Param
 
 from functools import partial
 from bokeh.layouts import column, row
@@ -34,9 +37,9 @@ class mrc: # main ROS class
                  img_dims=(64,64), namespace='/vpr_nodes', node_name='vpr_all_in_one', \
                  anon=True, log_level=2):
         
-
-        self.NODENAME               = node_name
         self.NAMESPACE              = namespace
+        self.NODENAME               = node_name
+        self.NODESPACE              = "/" + self.NODENAME + "/"
 
         rospy.init_node(self.NODENAME, anonymous=anon, log_level=log_level)
         rospy.loginfo('Starting %s node.' % (node_name))
@@ -48,17 +51,17 @@ class mrc: # main ROS class
         self.main_ready             = False
 
         ## Parse all the inputs:
-        self.rate_num               = rate_num # Hz
-        self.rate_obj               = rospy.Rate(self.rate_num)
+        self.RATE_NUM               = ROS_Param(self.NODESPACE + "rate", rate_num, check_positive_float) # Hz
+        self.rate_obj               = rospy.Rate(self.RATE_NUM.get())
 
-        self.DATABASE_PATH          = database_path
-        self.REF_DATA_NAME          = dataset_name
+        self.FEAT_TYPE              = ROS_Param("feature_type", enum_name(ft_type), lambda x: check_enum(x, FeatureType, skip=[FeatureType.NONE]), namespace=self.NAMESPACE)
+        self.IMG_DIMS               = ROS_Param("img_dims", img_dims, check_positive_two_int_tuple, namespace=self.NAMESPACE)
 
-        self.FEAT_TYPE              = ft_type
-        self.IMG_DIMS               = img_dims
+        self.DATABASE_PATH          = ROS_Param("database_path", database_path, check_string, namespace=self.NAMESPACE)
+        self.REF_DATA_NAME          = ROS_Param(self.NODESPACE + "ref/data_name", dataset_name, check_string)
 
         #!# Enable/Disable Features:
-        self.COMPRESS_IN            = compress_in
+        self.COMPRESS_IN            = ROS_Param(self.NODESPACE + "compress/in", compress_in, check_bool)
 
         self.bridge                 = CvBridge() # to convert sensor_msgs/(Compressed)Image to cv2.
 
@@ -68,19 +71,20 @@ class mrc: # main ROS class
                                        'img_dets': ImageDetails, 'mon_dets': MonitorDetails}
         
         # Handle ROS details for input topics:
-        if self.COMPRESS_IN:
+        if self.COMPRESS_IN.get():
             self.INPUTS             = self._compress_on
         else:
             self.INPUTS             = self._compress_off
 
+        self.param_checker_sub      = rospy.Subscriber("/vpr_nodes/params_update", String, self.param_callback, queue_size=100)
         self.svm_state_sub          = rospy.Subscriber(self.NAMESPACE + "/monitor/state" + self.INPUTS['topic'], self.INPUTS['mon_dets'], self.state_callback, queue_size=1)
         self.svm_field_sub          = rospy.Subscriber(self.NAMESPACE + "/monitor/field" + self.INPUTS['topic'], self.INPUTS['img_dets'], self.field_callback, queue_size=1)
         self.srv_GetSVMField        = rospy.ServiceProxy(self.NAMESPACE + '/GetSVMField', GetSVMField)
         self.srv_GetSVMField_once   = False
         
         # Process reference data (only needs to be done once)
-        self.image_processor        = VPRImageProcessor(ros=True, init_hybridnet=False, init_netvlad=False, cuda=False, dims=self.IMG_DIMS)
-        if not self.image_processor.npzLoader(self.DATABASE_PATH, self.REF_DATA_NAME):
+        self.image_processor        = VPRImageProcessor(ros=True, init_hybridnet=False, init_netvlad=False, cuda=False, dims=self.IMG_DIMS.get())
+        if not self.image_processor.npzLoader(self.DATABASE_PATH.get(), self.REF_DATA_NAME.get()):
             exit()
         self.ref_dict               = copy.deepcopy(self.image_processor.SET_DICT) # store reference data
         self.image_processor.destroy() # destroy to save client memory
@@ -99,10 +103,16 @@ class mrc: # main ROS class
         
         self.fig_dvec_handles = doDVecFigBokeh(self, self.ref_dict['odom']) # Make distance vector figure
         self.fig_odom_handles = doOdomFigBokeh(self, self.ref_dict['odom']) # Make odometry figure
+        self.fig_fdvc_handles = doFDVCFigBokeh(self, self.ref_dict['odom']) # Make filtered dvc figure
         self.fig_cntr_handles = doCntrFigBokeh(self, self.ref_dict['odom']) # Make contour figure
+        self.fig_svmm_handles = doSVMMFigBokeh(self, self.ref_dict['odom']) # Make SVM metrics figure
 
         # Last item as it sets a flag that enables main loop execution.
         self.main_ready = True
+
+    def param_callback(self, msg):
+        if (msg.data in self.RATE_NUM.updates_possible) and not (msg.data in self.RATE_NUM.updates_queued):
+            self.RATE_NUM.updates_queued.append(msg.data)
     
     def _timer_srv_GetSVMField(self, generate=False):
         try:
@@ -151,8 +161,10 @@ def main_loop(nmrc):
     # Update odometry visualisation:
     updateDVecFigBokeh(nmrc, matchInd, trueInd, dvc, nmrc.ref_dict['odom'])
     updateOdomFigBokeh(nmrc, matchInd, trueInd, dvc, nmrc.ref_dict['odom'])
+    updateFDVCFigBokeh(nmrc, matchInd, trueInd, dvc, nmrc.ref_dict['odom'])
     if nmrc.field_exists:
         updateCntrFigBokeh(nmrc, matchInd, trueInd, dvc, nmrc.ref_dict['odom'])
+        updateSVMMFigBokeh(nmrc, matchInd, trueInd, dvc, nmrc.ref_dict['odom'])
 
 def exit():
     global server
@@ -210,8 +222,8 @@ def main(doc):
                     node_name=args['node_name'], anon=args['anon'], log_level=args['log_level'])
 
         doc.add_root(row(   column(nmrc.fig_iframe_feed_, row(nmrc.fig_iframe_mtrx_)), \
-                            column(nmrc.fig_dvec_handles['fig'], nmrc.fig_odom_handles['fig']), \
-                            column(nmrc.fig_cntr_handles['fig']) \
+                            column(nmrc.fig_dvec_handles['fig'], nmrc.fig_odom_handles['fig'], nmrc.fig_fdvc_handles['fig']), \
+                            column(nmrc.fig_cntr_handles['fig'], nmrc.fig_svmm_handles['fig']) \
                         ))
 
         rospy.loginfo("[Bokeh Server] Initialisation complete. Listening for queries...")
@@ -219,7 +231,7 @@ def main(doc):
         root = rospkg.RosPack().get_path(rospkg.get_package_name(os.path.abspath(__file__))) + "/scripts/vpr_simple/"
         doc.theme = Theme(filename=root + "theme.yaml")
 
-        doc.add_periodic_callback(partial(ros_spin, nmrc=nmrc), int(1000 * (1/nmrc.rate_num)))
+        doc.add_periodic_callback(partial(ros_spin, nmrc=nmrc), int(1000 * (1/nmrc.RATE_NUM.get())))
         #doc.add_periodic_callback(nmrc.timer_srv_GetSVMField, 1000)
     except Exception:
         rospy.logerr(formatException())

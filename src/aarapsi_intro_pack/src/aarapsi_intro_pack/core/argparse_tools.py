@@ -1,4 +1,6 @@
 import argparse as ap
+import string
+from aarapsi_intro_pack.core.enum_tools import enum_value_options
 
 # Collection of functions that check whether an input can be appropriately cast
 # Functions are named check_(desired output type)
@@ -36,7 +38,7 @@ def check_bool(value):
 def check_positive_two_int_tuple(value):
     error_text = "%s is an invalid positive two-integer tuple." % (str(value))
     str_value = str(value) # force to string
-    value_list = str_value.replace(' ', '').replace('(','').replace(')','').split(',')
+    value_list = str_value.replace(' ', '').replace('(','').replace(')','').replace('[','').replace(']','').split(',')
     if not len(value_list) == 2:
         raise ap.ArgumentTypeError(error_text) 
     if '.' in str(str_value):
@@ -62,7 +64,7 @@ def check_str_list(value):
             raise ap.ArgumentTypeError(error_text)
     try:
         str_value = str(value) # force to string
-        str_value_list = str_value.replace('[','').replace(']','').replace(' ', '').split(',')
+        str_value_list = str_value.replace('(','').replace(')','').replace('[','').replace(']','').replace(' ', '').split(',')
         return str_value_list
     except:
         raise ap.ArgumentTypeError(error_text)
@@ -81,3 +83,25 @@ def check_valid_ip(value):
         except:
             raise ap.ArgumentTypeError(error_text)
     return ip_raw
+
+def check_string(value):
+    str_value = str(value)
+    return str_value
+
+def check_enum(value, enum, skip=[None]):
+    error_text = "%s is an invalid (or not accepted) identifier within the enumeration %s" % (str(value), str(enum))
+    if isinstance(value, enum) and not (value in skip):
+        return value
+    str_value = str(value)
+    enum_ids, enum_names = enum_value_options(enum, skip)
+    enum_ids_str = [str(i) for i in enum_ids]
+    enum_names_str = enum_names.replace('(','').replace(')','').replace('[','').replace(']','').translate(str.maketrans('', '', string.whitespace)).split(',')
+    if str_value in enum_ids_str:
+        index = enum_ids_str.index(str_value)
+        #print("yes - id", index)
+        return enum[enum_names_str[index]]
+    if str_value in enum_names_str:
+        index = enum_names_str.index(str_value)
+        #print("yes - name", index)
+        return enum[enum_names_str[index]]
+    raise ap.ArgumentTypeError(error_text)

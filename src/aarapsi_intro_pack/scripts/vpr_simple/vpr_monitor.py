@@ -2,6 +2,7 @@
 
 import rospy
 from sensor_msgs.msg import Image, CompressedImage
+from std_msgs.msg import String
 from cv_bridge import CvBridge
 
 import numpy as np
@@ -14,54 +15,48 @@ import cv2
 from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped, MonitorDetails, \
                                     ImageDetails, CompressedImageDetails, CompressedMonitorDetails# Our custom structures
 from aarapsi_intro_pack.srv import GetSVMField, GetSVMFieldResponse
-from aarapsi_intro_pack import SVMModelProcessor, Tolerance_Mode, FeatureType
+from aarapsi_intro_pack.vpr_simple import SVMModelProcessor, Tolerance_Mode, FeatureType
 from aarapsi_intro_pack.vpred import *
-from aarapsi_intro_pack.core.enum_tools import enum_value_options, enum_get
-from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_positive_two_int_tuple, check_bool
-from aarapsi_intro_pack.core.helper_tools import formatException
+from aarapsi_intro_pack.core import enum_value_options, enum_get, enum_name, \
+                                    check_positive_float, check_positive_two_int_tuple, check_bool, check_enum, check_string, \
+                                    formatException, \
+                                    ROS_Param
 
 class mrc: # main ROS class
-    def __init__(self, ref_dataset_name, cal_qry_dataset_name, cal_ref_dataset_name, database_path, image_feed_input, odometry_input, \
+    def __init__(self, cal_qry_dataset_name, cal_ref_dataset_name, database_path, image_feed_input, odometry_input, \
                     compress_in=True, compress_out=False, \
                     rate_num=20.0, ft_type=FeatureType.RAW, img_dims=(64,64), \
-                    tolerance_threshold=5.0, tolerance_mode=Tolerance_Mode.METRE_LINE, \
                     namespace="/vpr_nodes", node_name='vpr_monitor', anon=True, frame_id='base_link', \
-                    cal_folder='forward', ref_folder='forward', \
-                    print_prediction=True, log_level=2\
+                    cal_folder='forward', print_prediction=True, log_level=2\
                 ):
 
         self.NAMESPACE          = namespace
         self.NODENAME           = node_name
+        self.NODESPACE          = "/" + self.NODENAME + "/"
 
         rospy.init_node(self.NODENAME, anonymous=anon, log_level=log_level)
         rospy.loginfo('Starting %s node.' % (node_name))
-
-        self.rate_num           = rate_num # Hz, maximum of between 21-26 Hz (varies) with no plotting/image/ground truth/compression.
-        self.rate_obj           = rospy.Rate(self.rate_num)
-
-        self.PRINT_PREDICTION   = print_prediction
-
-        self.FEAT_TYPE          = ft_type
-        self.IMG_DIMS           = img_dims
-        self.FRAME_ID           = frame_id
-
-        self.DATABASE_PATH      = database_path
-        self.REF_DATA_NAME      = ref_dataset_name
-        self.CAL_QRY_DATA_NAME  = cal_qry_dataset_name
-        self.CAL_REF_DATA_NAME  = cal_ref_dataset_name
-
-        self.CAL_FOLDER         = cal_folder
-        self.REF_FOLDER         = ref_folder
         
-        self.FEED_TOPIC         = image_feed_input
-        self.ODOM_TOPIC         = odometry_input
+        self.RATE_NUM               = ROS_Param(self.NODESPACE + "rate", rate_num, check_positive_float) # Hz
+        self.rate_obj               = rospy.Rate(self.RATE_NUM.get())
 
-        self.TOL_MODE           = tolerance_mode
-        self.TOL_THRES          = tolerance_threshold
+        self.PRINT_PREDICTION       = ROS_Param(self.NODESPACE + "print_prediction", print_prediction, check_bool)
+
+        self.FEAT_TYPE              = ROS_Param("feature_type", enum_name(ft_type), lambda x: check_enum(x, FeatureType, skip=[FeatureType.NONE]), namespace=self.NAMESPACE)
+        self.IMG_DIMS               = ROS_Param("img_dims", img_dims, check_positive_two_int_tuple, namespace=self.NAMESPACE)
+        self.FRAME_ID               = ROS_Param("frame_id", frame_id, check_string, namespace=self.NAMESPACE)
+
+        self.DATABASE_PATH          = ROS_Param("database_path", database_path, check_string, namespace=self.NAMESPACE)
+        self.CAL_QRY_DATA_NAME      = ROS_Param(self.NODESPACE + "cal/qry/data_name", cal_qry_dataset_name, check_string)
+        self.CAL_REF_DATA_NAME      = ROS_Param(self.NODESPACE + "cal/ref/data_name", cal_ref_dataset_name, check_string)
+        self.CAL_FOLDER             = ROS_Param(self.NODESPACE + "cal/folder", cal_folder, check_string)
+        
+        self.FEED_TOPIC             = image_feed_input
+        self.ODOM_TOPIC             = odometry_input
 
         #!# Enable/Disable Features (Label topic will always be generated):
-        self.COMPRESS_IN        = compress_in
-        self.COMPRESS_OUT       = compress_out
+        self.COMPRESS_IN            = ROS_Param(self.NODESPACE + "compress/in", compress_in, check_bool)
+        self.COMPRESS_OUT           = ROS_Param(self.NODESPACE + "compress/out", compress_out, check_bool)
 
         self.bridge                 = CvBridge() # to convert sensor_msgs/(Compressed)Image to cv2.
 
@@ -70,16 +65,17 @@ class mrc: # main ROS class
         self._compress_off          = {'topic': "", 'image': Image, 'label': ImageLabelStamped, 
                                        'img_dets': ImageDetails, 'mon_dets': MonitorDetails}
         # Handle ROS details for input topics:
-        if self.COMPRESS_IN:
+        if self.COMPRESS_IN.get():
             self.INPUTS             = self._compress_on
         else:
             self.INPUTS             = self._compress_off
         # Handle ROS details for output topics:
-        if self.COMPRESS_OUT:
+        if self.COMPRESS_OUT.get():
             self.OUTPUTS            = self._compress_on
         else:
             self.OUTPUTS            = self._compress_off
 
+        self.param_checker_sub      = rospy.Subscriber("/vpr_nodes/params_update", String, self.param_callback, queue_size=100)
         self.vpr_label_sub          = rospy.Subscriber(self.NAMESPACE + "/label" + self.INPUTS['topic'], self.INPUTS['label'], self.label_callback, queue_size=1)
         self.svm_state_pub          = rospy.Publisher(self.NAMESPACE + "/monitor/state" + self.INPUTS['topic'], self.OUTPUTS['mon_dets'], queue_size=1)
         self.svm_field_pub          = rospy.Publisher(self.NAMESPACE + "/monitor/field" + self.INPUTS['topic'], self.OUTPUTS['img_dets'], queue_size=1)
@@ -95,11 +91,15 @@ class mrc: # main ROS class
         self.states                 = [0,0,0]
 
         # Set up SVM
-        self.svm_model_params       = dict(ref=self.CAL_REF_DATA_NAME, qry=self.CAL_QRY_DATA_NAME, img_dims=self.IMG_DIMS, \
-                                           folder=self.CAL_FOLDER, ft_type=self.FEAT_TYPE, database_path=self.DATABASE_PATH)
+        self.svm_model_params       = dict(ref=self.CAL_REF_DATA_NAME.get(), qry=self.CAL_QRY_DATA_NAME.get(), img_dims=self.IMG_DIMS.get(), \
+                                           folder=self.CAL_FOLDER.get(), ft_type=self.FEAT_TYPE.get(), database_path=self.DATABASE_PATH.get())
         self.svm_model_dir          = rospkg.RosPack().get_path(rospkg.get_package_name(os.path.abspath(__file__))) + "/cfg/svm_models"
         self.svm                    = SVMModelProcessor(self.svm_model_dir, model=self.svm_model_params, ros=True)
-        self.main_ready = True
+        self.main_ready             = True
+
+    def param_callback(self, msg):
+        if (msg.data in self.RATE_NUM.updates_possible) and not (msg.data in self.RATE_NUM.updates_queued):
+            self.RATE_NUM.updates_queued.append(msg.data)
 
     def handle_GetSVMField(self, req):
     # /vpr_nodes/GetSVMField service
@@ -138,21 +138,21 @@ class mrc: # main ROS class
                              min(indices_cols) : max(indices_cols)+1]
         img_np_crop_resize = cv2.resize(img_np_crop, (array_dim, array_dim), interpolation = cv2.INTER_AREA)
         
-        if self.COMPRESS_OUT:
+        if self.COMPRESS_OUT.get():
             ros_img_to_pub = self.bridge.cv2_to_compressed_imgmsg(img_np_crop_resize, "jpg") # jpg (png slower)
         else:
             ros_img_to_pub = self.bridge.cv2_to_imgmsg(img_np_crop_resize, "bgr8")
 
         self.SVM_FIELD_MSG                          = self.OUTPUTS['img_dets']()
         self.SVM_FIELD_MSG.image                    = ros_img_to_pub
-        self.SVM_FIELD_MSG.image.header.frame_id    = self.FRAME_ID
+        self.SVM_FIELD_MSG.image.header.frame_id    = self.FRAME_ID.get()
         self.SVM_FIELD_MSG.image.header.stamp       = rospy.Time.now()
         self.SVM_FIELD_MSG.data.xlim                = x_lim
         self.SVM_FIELD_MSG.data.ylim                = y_lim
         self.SVM_FIELD_MSG.data.xlab                = 'VA ratio'
         self.SVM_FIELD_MSG.data.ylab                = 'Average Gradient'
         self.SVM_FIELD_MSG.data.title               = 'SVM Decision Function'
-        self.SVM_FIELD_MSG.header.frame_id          = self.FRAME_ID
+        self.SVM_FIELD_MSG.header.frame_id          = self.FRAME_ID.get()
         self.SVM_FIELD_MSG.header.stamp             = rospy.Time.now()
 
     def exit(self):
@@ -168,7 +168,7 @@ def main_loop(nmrc):
     nmrc.new_label = False
     (y_pred_rt, y_zvalues_rt, [factor1_qry, factor2_qry]) = nmrc.svm.predict(nmrc.label.data.dvc)
 
-    if nmrc.PRINT_PREDICTION:
+    if nmrc.PRINT_PREDICTION.get():
         if nmrc.label.data.state == 0:
             rospy.loginfo('integrity prediction: %s', y_pred_rt)
         else:
@@ -184,7 +184,7 @@ def main_loop(nmrc):
     ros_msg                 = nmrc.OUTPUTS['mon_dets']()
     ros_msg.queryImage      = nmrc.label.queryImage
     ros_msg.header.stamp    = rospy.Time.now()
-    ros_msg.header.frame_id	= str(nmrc.FRAME_ID)
+    ros_msg.header.frame_id	= str(nmrc.FRAME_ID.get())
     ros_msg.data            = nmrc.label.data
     ros_msg.mState	        = y_zvalues_rt # Continuous monitor state estimate 
     ros_msg.prob	        = 0.0 # Monitor probability estimate
@@ -199,7 +199,6 @@ def do_args():
                                 epilog="Maintainer: Owen Claxton (claxtono@qut.edu.au)")
     
     # Positional Arguments:
-    parser.add_argument('ref-dataset-name', help='Specify name of reference dataset (for fast loading; matches are made on names starting with provided string).')
     parser.add_argument('cal-qry-dataset-name', help='Specify name of calibration query dataset (for fast loading; matches are made on names starting with provided string).')
     parser.add_argument('cal-ref-dataset-name', help='Specify name of calibration reference dataset (for fast loading; matches are made on names starting with provided string).')
     parser.add_argument('database-path', help="Specify path to where compressed databases exist (for fast loading).")
@@ -214,10 +213,6 @@ def do_args():
     ft_options, ft_options_text = enum_value_options(FeatureType, skip=FeatureType.NONE)
     parser.add_argument('--ft-type', '-F', type=int, choices=ft_options, default=ft_options[0], \
                         help='Choose feature type for extraction, types: %s (default: %s).' % (ft_options_text, '%(default)s'))
-    tolmode_options, tolmode_options_text = enum_value_options(Tolerance_Mode)
-    parser.add_argument('--tol-mode', '-t', type=int, choices=tolmode_options, default=tolmode_options[0], \
-                        help='Choose tolerance mode for ground truth, types: %s (default: %s).' % (tolmode_options_text, '%(default)s'))
-    parser.add_argument('--tol-thresh', '-T', type=check_positive_float, default=1.0, help='Set tolerance threshold for ground truth (default: %(default)s).')
     parser.add_argument('--node-name', '-N', default="vpr_all_in_one", help="Specify node name (default: %(default)s).")
     parser.add_argument('--anon', '-a', type=check_bool, default=True, help="Specify whether node should be anonymous (default: %(default)s).")
     parser.add_argument('--namespace', '-n', default="/vpr_nodes", help="Specify namespace for topics (default: %(default)s).")
@@ -234,10 +229,9 @@ if __name__ == '__main__':
         args = do_args()
 
         # Hand to class ...
-        nmrc = mrc(args['ref-dataset-name'], args['cal-qry-dataset-name'], args['cal-ref-dataset-name'], args['database-path'], args['image-topic-in'], args['odometry-topic-in'], \
+        nmrc = mrc(args['cal-qry-dataset-name'], args['cal-ref-dataset-name'], args['database-path'], args['image-topic-in'], args['odometry-topic-in'], \
                     compress_in=args['compress_in'], compress_out=args['compress_out'], \
                     rate_num=args['rate'], ft_type=enum_get(args['ft_type'], FeatureType), img_dims=args['img_dims'], \
-                    tolerance_threshold=args['tol_thresh'], tolerance_mode=enum_get(args['tol_mode'], Tolerance_Mode), \
                     namespace=args['namespace'], node_name=args['node_name'], anon=args['anon'],  frame_id=args['frame_id'], \
                     print_prediction=args['print_prediction'], log_level=args['log_level']\
                 )

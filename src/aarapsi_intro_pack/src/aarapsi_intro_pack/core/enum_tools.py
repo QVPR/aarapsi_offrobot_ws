@@ -15,7 +15,7 @@ def enum_get(value, enumtype):
     return None
 
 
-def enum_value_options(enumtype, skip=[]):
+def enum_value_options(enumtype, skip=[None]):
 # Return lists of an enumtype's values and a cleaned string variant for printing purposes
     if isinstance(skip, enumtype):
         skip = [skip]
