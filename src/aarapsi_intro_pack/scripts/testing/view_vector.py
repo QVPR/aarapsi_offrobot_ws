@@ -7,7 +7,7 @@ from sensor_msgs.msg import Imu
 from tf.transformations import euler_from_quaternion
 
 import matplotlib
-matplotlib.use('TkAgg')
+matplotlib.use('Qt5agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import argparse as ap
@@ -15,13 +15,17 @@ import argparse as ap
 from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_string, check_bool
 
 class Viewer:
-    def __init__(self, node_name, anon, log_level, rate, mode):
+    def __init__(self, node_name, anon, log_level, rate, mode, topic=None):
         rospy.init_node(node_name, anonymous=anon, log_level=log_level)
         rospy.loginfo('Starting %s node.' % (node_name))
 
+        self.node_name  = node_name
+        self.anon       = anon
+        self.log_level  = log_level
         self.rate_num   = rate
         self.rate_obj   = rospy.Rate(self.rate_num)
         self.mode       = mode
+        self.topic      = topic
 
     def topic_cb(self, msg):
         self.msg        = msg
@@ -35,11 +39,15 @@ class Viewer:
 
     def main_imu(self):
 
-        self.topic_to_view = "/imu/data"
+        if self.topic is None:
+            self.topic_to_view = "/imu/data"
+        else:
+            self.topic_to_view = self.topic
         
         self.sub = rospy.Subscriber(self.topic_to_view, Imu, self.topic_cb, queue_size=1)
 
         self.fig, self.axes = plt.subplots(1,1)
+        self.fig.show()
         self.axes_twins = [[self.axes, self.axes.twinx()]]
 
         self.msg        = None
@@ -93,16 +101,20 @@ class Viewer:
             self.axes_twins[0][1].set_ylim(mins_dict['vyaw'],   maxs_dict['vyaw'])
 
             # draw:
-            self.fig.canvas.draw()
-            plt.pause(0.001)
+            self.fig.canvas.draw_idle()
+            self.fig.canvas.start_event_loop(0.001)
 
     def main_odometry(self):
-
-        self.topic_to_view = "/odometry/filtered"
+        
+        if self.topic is None:
+            self.topic_to_view = "/odometry/filtered"
+        else:
+            self.topic_to_view = self.topic
         
         self.sub = rospy.Subscriber(self.topic_to_view, Odometry, self.topic_cb, queue_size=1)
 
         self.fig, self.axes = plt.subplots(3,1)
+        self.fig.show()
         self.axes_twins = [[i, i.twinx()] for i in self.axes]
 
         self.msg        = None
@@ -172,8 +184,8 @@ class Viewer:
             self.axes_twins[2][1].set_ylim(mins_dict['vyaw'],   maxs_dict['vyaw'])
 
             # draw:
-            self.fig.canvas.draw()
-            plt.pause(0.001)
+            self.fig.canvas.draw_idle()
+            self.fig.canvas.start_event_loop(0.001)
 
 if __name__ == '__main__':
     try:
@@ -181,6 +193,7 @@ if __name__ == '__main__':
                                 description="ROS Topic Throttle Tool",
                                 epilog="Maintainer: Owen Claxton (claxtono@qut.edu.au)")
         parser.add_argument('--mode', '-m', type=check_string, choices=["imu","odom"], default="odom", help="Specify ROS log level (default: %(default)s).")
+        parser.add_argument('--topic', '-t', type=check_string, default=None, help='Set node rate (default: %(default)s).')
         parser.add_argument('--rate', '-r', type=check_positive_float, default=10.0, help='Set node rate (default: %(default)s).')
         parser.add_argument('--node-name', '-N', default="view_vector", help="Specify node name (default: %(default)s).")
         parser.add_argument('--anon', '-a', type=check_bool, default=True, help="Specify whether node should be anonymous (default: %(default)s).")
@@ -194,8 +207,9 @@ if __name__ == '__main__':
         log_level   = args['log_level']
         node_name   = args['node_name']
         anon        = args['anon']
+        topic       = args['topic']
 
-        viewer = Viewer(node_name, anon, log_level, rate, mode)
+        viewer = Viewer(node_name, anon, log_level, rate, mode, topic)
         viewer.main()
         rospy.loginfo("Exit state reached.")
     except rospy.ROSInterruptException:
