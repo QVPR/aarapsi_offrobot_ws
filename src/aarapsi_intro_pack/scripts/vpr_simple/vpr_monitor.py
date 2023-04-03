@@ -139,7 +139,7 @@ class mrc: # main ROS class
         img_np_crop_resize = cv2.resize(img_np_crop, (array_dim, array_dim), interpolation = cv2.INTER_AREA)
         
         if self.COMPRESS_OUT.get():
-            ros_img_to_pub = self.bridge.cv2_to_compressed_imgmsg(img_np_crop_resize, "jpg") # jpg (png slower)
+            ros_img_to_pub = self.bridge.cv2_to_compressed_imgmsg(img_np_crop_resize, "jpeg") # jpeg (png slower)
         else:
             ros_img_to_pub = self.bridge.cv2_to_imgmsg(img_np_crop_resize, "bgr8")
 
