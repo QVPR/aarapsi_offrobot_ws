@@ -145,7 +145,7 @@ class VPRImageProcessor: # main ROS class
         img_set_names = [os.path.basename(img_path) for img_path in self.IMG_PATHS]
 
         try:
-            self.IMG_FEATS = dict.fromkeys([enum_name(fttype) for fttype in fttypes], {}) # init empty
+            self.IMG_FEATS = dict.fromkeys([enum_name(fttype) for fttype in fttypes], {}) # init empty #TODO remove fromkeys bc default value is shared memory
             for key in self.IMG_FEATS:
                 self.IMG_FEATS[key] = dict.fromkeys(img_set_names)
             for img_path in self.IMG_PATHS:
