@@ -12,7 +12,7 @@ import torch
 from tqdm.auto import tqdm
 
 from aarapsi_intro_pack.core.helper_tools import vis_dict
-from aarapsi_intro_pack import FeatureType, VPRImageProcessor
+from aarapsi_intro_pack.vpr_simple import FeatureType, VPRImageProcessor
 
 ### Example usage:
 if __name__ == '__main__':

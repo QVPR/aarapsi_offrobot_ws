@@ -17,10 +17,10 @@ from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStampe
 from aarapsi_intro_pack.srv import GetSVMField, GetSVMFieldResponse
 from aarapsi_intro_pack.vpr_simple import SVMModelProcessor, Tolerance_Mode, FeatureType
 from aarapsi_intro_pack.vpred import *
-from aarapsi_intro_pack.core import enum_value_options, enum_get, enum_name, \
-                                    check_positive_float, check_positive_two_int_tuple, check_bool, check_enum, check_string, \
-                                    formatException, \
-                                    ROS_Param
+from aarapsi_intro_pack.core.enum_tools import enum_value_options, enum_get, enum_name
+from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_positive_two_int_tuple, check_bool, check_enum, check_string
+from aarapsi_intro_pack.core.helper_tools import formatException
+from aarapsi_intro_pack.core.ros_tools import ROS_Param
 
 class mrc: # main ROS class
     def __init__(self, cal_qry_dataset_name, cal_ref_dataset_name, database_path, image_feed_input, odometry_input, \

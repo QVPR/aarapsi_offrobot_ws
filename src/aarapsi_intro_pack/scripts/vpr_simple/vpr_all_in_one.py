@@ -18,10 +18,10 @@ from scipy.spatial.distance import cdist
 from aarapsi_intro_pack.msg import ImageLabelStamped, CompressedImageLabelStamped # Our custom msg structures
 from aarapsi_intro_pack.vpr_simple import VPRImageProcessor, Tolerance_Mode, FeatureType, labelImage, makeImage, grey2dToColourMap, \
                                             doMtrxFig, updateMtrxFig, doDVecFig, updateDVecFig, doOdomFig, updateOdomFig
-from aarapsi_intro_pack.core import enum_value_options, enum_get, enum_name, \
-                                    check_positive_float, check_positive_two_int_tuple, check_positive_int, \
-                                    check_bool, check_str_list, check_enum, check_string, \
-                                    ROS_Param
+
+from aarapsi_intro_pack.core.enum_tools import enum_value_options, enum_get, enum_name
+from aarapsi_intro_pack.core.argparse_tools import check_positive_float, check_positive_two_int_tuple, check_positive_int, check_bool, check_str_list, check_enum, check_string
+from aarapsi_intro_pack.core.ros_tools import ROS_Param
 
 class mrc: # main ROS class
     def __init__(self, database_path, ref_images_path, ref_odometry_path, image_feed_input, odometry_input, dataset_name, \
