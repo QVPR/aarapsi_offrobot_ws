@@ -1,0 +1,15 @@
+[submodule "src/src/hdl_graph_slam"]
+	path = src/src/hdl_graph_slam
+	url = https://github.com/koide3/hdl_graph_slam
+[submodule "src/src/hdl_localization"]
+	path = src/src/hdl_localization
+	url = https://github.com/koide3/hdl_localization
+[submodule "src/src/fast_gicp"]
+	path = src/src/fast_gicp
+	url = https://github.com/SMRT-AIST/fast_gicp
+[submodule "src/src/hdl_global_localization"]
+	path = src/src/hdl_global_localization
+	url = https://github.com/koide3/hdl_global_localization
+[submodule "src/src/ndt_omp"]
+	path = src/src/ndt_omp
+	url = https://github.com/koide3/ndt_omp
