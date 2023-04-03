@@ -27,7 +27,7 @@ class mrc: # main ROS class
                     compress_in=True, compress_out=False, \
                     rate_num=20.0, ft_type=FeatureType.RAW, img_dims=(64,64), \
                     namespace="/vpr_nodes", node_name='vpr_monitor', anon=True, frame_id='base_link', \
-                    cal_folder='forward', print_prediction=True, log_level=2\
+                    cal_folder='forward', print_prediction=True, log_level=2, reset=False\
                 ):
 
         self.NAMESPACE          = namespace
@@ -37,26 +37,26 @@ class mrc: # main ROS class
         rospy.init_node(self.NODENAME, anonymous=anon, log_level=log_level)
         rospy.loginfo('Starting %s node.' % (node_name))
         
-        self.RATE_NUM               = ROS_Param(self.NODESPACE + "rate", rate_num, check_positive_float) # Hz
+        self.RATE_NUM               = ROS_Param(self.NODESPACE + "rate", rate_num, check_positive_float, force=reset) # Hz
         self.rate_obj               = rospy.Rate(self.RATE_NUM.get())
 
-        self.PRINT_PREDICTION       = ROS_Param(self.NODESPACE + "print_prediction", print_prediction, check_bool)
+        self.PRINT_PREDICTION       = ROS_Param(self.NODESPACE + "print_prediction", print_prediction, check_bool, force=reset)
 
-        self.FEAT_TYPE              = ROS_Param("feature_type", enum_name(ft_type), lambda x: check_enum(x, FeatureType, skip=[FeatureType.NONE]), namespace=self.NAMESPACE)
-        self.IMG_DIMS               = ROS_Param("img_dims", img_dims, check_positive_two_int_tuple, namespace=self.NAMESPACE)
-        self.FRAME_ID               = ROS_Param("frame_id", frame_id, check_string, namespace=self.NAMESPACE)
+        self.FEAT_TYPE              = ROS_Param("feature_type", enum_name(ft_type), lambda x: check_enum(x, FeatureType, skip=[FeatureType.NONE]), namespace=self.NAMESPACE, force=reset)
+        self.IMG_DIMS               = ROS_Param("img_dims", img_dims, check_positive_two_int_tuple, namespace=self.NAMESPACE, force=reset)
+        self.FRAME_ID               = ROS_Param("frame_id", frame_id, check_string, namespace=self.NAMESPACE, force=reset)
 
-        self.DATABASE_PATH          = ROS_Param("database_path", database_path, check_string, namespace=self.NAMESPACE)
-        self.CAL_QRY_DATA_NAME      = ROS_Param(self.NODESPACE + "cal/qry/data_name", cal_qry_dataset_name, check_string)
-        self.CAL_REF_DATA_NAME      = ROS_Param(self.NODESPACE + "cal/ref/data_name", cal_ref_dataset_name, check_string)
-        self.CAL_FOLDER             = ROS_Param(self.NODESPACE + "cal/folder", cal_folder, check_string)
+        self.DATABASE_PATH          = ROS_Param("database_path", database_path, check_string, namespace=self.NAMESPACE, force=reset)
+        self.CAL_QRY_DATA_NAME      = ROS_Param(self.NODESPACE + "cal/qry/data_name", cal_qry_dataset_name, check_string, force=reset)
+        self.CAL_REF_DATA_NAME      = ROS_Param(self.NODESPACE + "cal/ref/data_name", cal_ref_dataset_name, check_string, force=reset)
+        self.CAL_FOLDER             = ROS_Param(self.NODESPACE + "cal/folder", cal_folder, check_string, force=reset)
         
         self.FEED_TOPIC             = image_feed_input
         self.ODOM_TOPIC             = odometry_input
 
         #!# Enable/Disable Features (Label topic will always be generated):
-        self.COMPRESS_IN            = ROS_Param(self.NODESPACE + "compress/in", compress_in, check_bool)
-        self.COMPRESS_OUT           = ROS_Param(self.NODESPACE + "compress/out", compress_out, check_bool)
+        self.COMPRESS_IN            = ROS_Param(self.NODESPACE + "compress/in", compress_in, check_bool, force=reset)
+        self.COMPRESS_OUT           = ROS_Param(self.NODESPACE + "compress/out", compress_out, check_bool, force=reset)
 
         self.bridge                 = CvBridge() # to convert sensor_msgs/(Compressed)Image to cv2.
 
@@ -219,6 +219,7 @@ def do_args():
     parser.add_argument('--frame-id', '-f', default="base_link", help="Specify frame_id for messages (default: %(default)s).")
     parser.add_argument('--print-prediction', '-p', type=check_bool, default=True, help="Specify whether the monitor's prediction should be printed (default: %(default)s).")
     parser.add_argument('--log-level', '-V', type=int, choices=[1,2,4,8,16], default=2, help="Specify ROS log level (default: %(default)s).")
+    parser.add_argument('--reset', '-R', type=check_bool, default=False, help='Force reset of parameters to specified ones (default: %(default)s)')
     
     # Parse args...
     raw_args = parser.parse_known_args()
@@ -233,7 +234,7 @@ if __name__ == '__main__':
                     compress_in=args['compress_in'], compress_out=args['compress_out'], \
                     rate_num=args['rate'], ft_type=enum_get(args['ft_type'], FeatureType), img_dims=args['img_dims'], \
                     namespace=args['namespace'], node_name=args['node_name'], anon=args['anon'],  frame_id=args['frame_id'], \
-                    print_prediction=args['print_prediction'], log_level=args['log_level']\
+                    print_prediction=args['print_prediction'], log_level=args['log_level'], reset=args['reset']\
                 )
 
         rospy.loginfo("Initialisation complete. Listening for queries...")    

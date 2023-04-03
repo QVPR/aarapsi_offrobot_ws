@@ -30,7 +30,7 @@ class mrc: # main ROS class
                     tolerance_threshold=5.0, tolerance_mode=Tolerance_Mode.METRE_LINE, \
                     match_metric='euclidean', namespace="/vpr_nodes", \
                     time_history_length=20, frame_id="base_link", \
-                    node_name='vpr_all_in_one', anon=True, log_level=2\
+                    node_name='vpr_all_in_one', anon=True, log_level=2, reset=False\
                 ):
         
         self.NAMESPACE              = namespace
@@ -41,38 +41,38 @@ class mrc: # main ROS class
         rospy.loginfo('Starting %s node.' % (node_name))
 
         ## Parse all the inputs:
-        self.RATE_NUM               = ROS_Param(self.NODESPACE + "rate", rate_num, check_positive_float) # Hz
+        self.RATE_NUM               = ROS_Param(self.NODESPACE + "rate", rate_num, check_positive_float, force=reset) # Hz
         self.rate_obj               = rospy.Rate(self.RATE_NUM.get())
 
-        self.FEAT_TYPE              = ROS_Param("feature_type", enum_name(ft_type), lambda x: check_enum(x, FeatureType, skip=[FeatureType.NONE]), namespace=self.NAMESPACE)
-        self.IMG_DIMS               = ROS_Param("img_dims", img_dims, check_positive_two_int_tuple, namespace=self.NAMESPACE)
+        self.FEAT_TYPE              = ROS_Param("feature_type", enum_name(ft_type), lambda x: check_enum(x, FeatureType, skip=[FeatureType.NONE]), namespace=self.NAMESPACE, force=reset)
+        self.IMG_DIMS               = ROS_Param("img_dims", img_dims, check_positive_two_int_tuple, namespace=self.NAMESPACE, force=reset)
 
-        self.DATABASE_PATH          = ROS_Param("database_path", database_path, check_string, namespace=self.NAMESPACE)
-        self.REF_DATA_NAME          = ROS_Param(self.NODESPACE + "ref/data_name", dataset_name, check_string)
-        self.REF_IMG_PATH           = ROS_Param(self.NODESPACE + "ref/images_path", ref_images_path, check_string)
-        self.REF_ODOM_PATH          = ROS_Param(self.NODESPACE + "ref/odometry_path", ref_odometry_path, check_string)
+        self.DATABASE_PATH          = ROS_Param("database_path", database_path, check_string, namespace=self.NAMESPACE, force=reset)
+        self.REF_DATA_NAME          = ROS_Param(self.NODESPACE + "ref/data_name", dataset_name, check_string, force=reset)
+        self.REF_IMG_PATH           = ROS_Param(self.NODESPACE + "ref/images_path", ref_images_path, check_string, force=reset)
+        self.REF_ODOM_PATH          = ROS_Param(self.NODESPACE + "ref/odometry_path", ref_odometry_path, check_string, force=reset)
 
         self.FEED_TOPIC             = image_feed_input
         self.ODOM_TOPIC             = odometry_input
 
-        self.TOL_MODE               = ROS_Param("tolerance/mode", enum_name(tolerance_mode), lambda x: check_enum(x, Tolerance_Mode), namespace=self.NAMESPACE)
-        self.TOL_THRES              = ROS_Param("tolerance/threshold", tolerance_threshold, check_positive_float, namespace=self.NAMESPACE)
+        self.TOL_MODE               = ROS_Param("tolerance/mode", enum_name(tolerance_mode), lambda x: check_enum(x, Tolerance_Mode), namespace=self.NAMESPACE, force=reset)
+        self.TOL_THRES              = ROS_Param("tolerance/threshold", tolerance_threshold, check_positive_float, namespace=self.NAMESPACE, force=reset)
 
         self.ICON_SIZE              = icon_settings[0]
         self.ICON_DIST              = icon_settings[1]
         self.ICON_PATH              = rospkg.RosPack().get_path(rospkg.get_package_name(os.path.abspath(__file__))) + "/media"
 
         self.MATCH_METRIC           = ROS_Param("match_metric", match_metric, check_string, namespace=self.NAMESPACE)
-        self.TIME_HIST_LEN          = ROS_Param(self.NODESPACE + "time_history_length", time_history_length, check_positive_int)
-        self.FRAME_ID               = ROS_Param("frame_id", frame_id, check_string, namespace=self.NAMESPACE)
+        self.TIME_HIST_LEN          = ROS_Param(self.NODESPACE + "time_history_length", time_history_length, check_positive_int, force=reset)
+        self.FRAME_ID               = ROS_Param("frame_id", frame_id, check_string, namespace=self.NAMESPACE, force=reset)
 
         #!# Enable/Disable Features (Label topic will always be generated):
-        self.COMPRESS_IN            = ROS_Param(self.NODESPACE + "compress/in", compress_in, check_bool)
-        self.COMPRESS_OUT           = ROS_Param(self.NODESPACE + "compress/out", compress_out, check_bool)
-        self.DO_PLOTTING            = ROS_Param(self.NODESPACE + "method/plotting", do_plotting, check_bool)
+        self.COMPRESS_IN            = ROS_Param(self.NODESPACE + "compress/in", compress_in, check_bool, force=reset)
+        self.COMPRESS_OUT           = ROS_Param(self.NODESPACE + "compress/out", compress_out, check_bool, force=reset)
+        self.DO_PLOTTING            = ROS_Param(self.NODESPACE + "method/plotting", do_plotting, check_bool, force=reset)
         self.MAKE_IMAGE             = ROS_Param(self.NODESPACE + "method/images", do_image, check_bool)
-        self.GROUND_TRUTH           = ROS_Param(self.NODESPACE + "method/groundtruth", do_groundtruth, check_bool)
-        self.MAKE_LABEL             = ROS_Param(self.NODESPACE + "method/label", do_label, check_bool)
+        self.GROUND_TRUTH           = ROS_Param(self.NODESPACE + "method/groundtruth", do_groundtruth, check_bool, force=reset)
+        self.MAKE_LABEL             = ROS_Param(self.NODESPACE + "method/label", do_label, check_bool, force=reset)
 
         self.ego                    = [0.0, 0.0, 0.0] # robot position
 
@@ -391,6 +391,7 @@ def do_args():
     parser.add_argument('--namespace', '-n', default="/vpr_nodes", help="Specify namespace for topics (default: %(default)s).")
     parser.add_argument('--frame-id', '-f', default="base_link", help="Specify frame_id for messages (default: %(default)s).")
     parser.add_argument('--log-level', '-V', type=int, choices=[1,2,4,8,16], default=2, help="Specify ROS log level (default: %(default)s).")
+    parser.add_argument('--reset', '-R', type=check_bool, default=False, help='Force reset of parameters to specified ones (default: %(default)s)')
 
     # Parse args...
     raw_args = parser.parse_known_args()
@@ -407,7 +408,7 @@ if __name__ == '__main__':
                     img_dims=args['img_dims'], icon_settings=args['(size, distance)'], tolerance_threshold=args['tol_thresh'], \
                     tolerance_mode=enum_get(args['tol_mode'], Tolerance_Mode), match_metric='euclidean', namespace=args['namespace'], \
                     time_history_length=args['time_history_length'], frame_id=args['frame_id'], \
-                    node_name=args['node_name'], anon=args['anon'], log_level=args['log_level']\
+                    node_name=args['node_name'], anon=args['anon'], log_level=args['log_level'], reset=args['reset']\
                 )
 
         rospy.loginfo("Initialisation complete. Listening for queries...")    

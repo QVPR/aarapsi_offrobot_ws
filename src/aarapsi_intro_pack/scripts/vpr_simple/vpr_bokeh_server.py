@@ -35,7 +35,7 @@ logging.getLogger('bokeh').setLevel(logging.CRITICAL) # hide bokeh superfluous m
 class mrc: # main ROS class
     def __init__(self, database_path, dataset_name, ft_type=FeatureType.RAW, compress_in=True, rate_num=20.0, \
                  img_dims=(64,64), namespace='/vpr_nodes', node_name='vpr_all_in_one', \
-                 anon=True, log_level=2):
+                 anon=True, log_level=2, reset=False):
         
         self.NAMESPACE              = namespace
         self.NODENAME               = node_name
@@ -51,17 +51,17 @@ class mrc: # main ROS class
         self.main_ready             = False
 
         ## Parse all the inputs:
-        self.RATE_NUM               = ROS_Param(self.NODESPACE + "rate", rate_num, check_positive_float) # Hz
+        self.RATE_NUM               = ROS_Param(self.NODESPACE + "rate", rate_num, check_positive_float, force=reset) # Hz
         self.rate_obj               = rospy.Rate(self.RATE_NUM.get())
 
-        self.FEAT_TYPE              = ROS_Param("feature_type", enum_name(ft_type), lambda x: check_enum(x, FeatureType, skip=[FeatureType.NONE]), namespace=self.NAMESPACE)
-        self.IMG_DIMS               = ROS_Param("img_dims", img_dims, check_positive_two_int_tuple, namespace=self.NAMESPACE)
+        self.FEAT_TYPE              = ROS_Param("feature_type", enum_name(ft_type), lambda x: check_enum(x, FeatureType, skip=[FeatureType.NONE]), namespace=self.NAMESPACE, force=reset)
+        self.IMG_DIMS               = ROS_Param("img_dims", img_dims, check_positive_two_int_tuple, namespace=self.NAMESPACE, force=reset)
 
-        self.DATABASE_PATH          = ROS_Param("database_path", database_path, check_string, namespace=self.NAMESPACE)
-        self.REF_DATA_NAME          = ROS_Param(self.NODESPACE + "ref/data_name", dataset_name, check_string)
+        self.DATABASE_PATH          = ROS_Param("database_path", database_path, check_string, namespace=self.NAMESPACE, force=reset)
+        self.REF_DATA_NAME          = ROS_Param(self.NODESPACE + "ref/data_name", dataset_name, check_string, force=reset)
 
         #!# Enable/Disable Features:
-        self.COMPRESS_IN            = ROS_Param(self.NODESPACE + "compress/in", compress_in, check_bool)
+        self.COMPRESS_IN            = ROS_Param(self.NODESPACE + "compress/in", compress_in, check_bool, force=reset)
 
         self.bridge                 = CvBridge() # to convert sensor_msgs/(Compressed)Image to cv2.
 
@@ -207,6 +207,7 @@ def do_args():
     ft_options, ft_options_text = enum_value_options(FeatureType, skip=FeatureType.NONE)
     parser.add_argument('--ft-type', '-F', type=int, choices=ft_options, default=ft_options[0], \
                         help='Choose feature type for extraction, types: %s (default: %s).' % (ft_options_text, '%(default)s'))
+    parser.add_argument('--reset', '-R', type=check_bool, default=False, help='Force reset of parameters to specified ones (default: %(default)s)')
     # Parse args...
     raw_args = parser.parse_known_args()
     return vars(raw_args[0])
@@ -219,7 +220,7 @@ def main(doc):
         # Hand to class ...
         nmrc = mrc(args['database-path'], args['dataset-name'], enum_get(args['ft_type'], FeatureType), compress_in=args['compress_in'], \
                    rate_num=args['rate'], namespace=args['namespace'], img_dims=args['img_dims'], \
-                    node_name=args['node_name'], anon=args['anon'], log_level=args['log_level'])
+                    node_name=args['node_name'], anon=args['anon'], log_level=args['log_level'], reset=args['reset'])
 
         doc.add_root(row(   column(nmrc.fig_iframe_feed_, row(nmrc.fig_iframe_mtrx_)), \
                             column(nmrc.fig_dvec_handles['fig'], nmrc.fig_odom_handles['fig'], nmrc.fig_fdvc_handles['fig']), \

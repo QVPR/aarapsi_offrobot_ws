@@ -10,7 +10,7 @@
     <arg name="image_topic_in"          default="/ros_indigosdk_occam/image0"/>
     <arg name="odometry_topic_in"       default="/odom/filtered"/>
 
-    <arg name="rate"                    default="20.0"/>
+    <arg name="rate"                    default="12.0"/>
     <arg name="node_name"               default="vpr_monitor"/>
     <arg name="anon"                    default="True"/>
 
