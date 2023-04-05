@@ -13,3 +13,7 @@
 [submodule "src/hdl_global_localization"]
 	path = src/hdl_global_localization
 	url = https://github.com/koide3/hdl_global_localization
+[submodule "src/aarapsi_robot_pack"]
+	path = src/aarapsi_robot_pack
+	url = https://github.com/QVPR/aarapsi_robot_pack
+	branch = main
