@@ -1,6 +1,7 @@
 [submodule "src/aarapsi_robot_pack"]
 	path = src/aarapsi_robot_pack
 	url = https://github.com/QVPR/aarapsi_robot_pack
+	branch = main
 [submodule "src/hdl_graph_slam"]
 	path = src/hdl_graph_slam
 	url = https://github.com/koide3/hdl_graph_slam
