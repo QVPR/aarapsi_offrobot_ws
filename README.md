@@ -12,11 +12,13 @@
 7. fast_gicp
 
 To build:
-  On arm64/aarch64:
-    Edit CMakeLists.txt for the hdl_localization and hdl_graph_slam:
+- On arm64/aarch64:
+  - Edit CMakeLists.txt for the hdl_localization and hdl_graph_slam:
+      '''
       if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
         add_definitions(-std=c++14) # was 11
         set(CMAKE_CXX_FLAGS "-std=c++14") # was 11
-    catkin_make -DCMAKE_BUILD_TYPE=Release -DCMAKE_SYSTEM_PROCESSOR="aarch64" -DBUILD_WITH_MARCH_NATIVE=True -DBUILD_VGICP_CUDA=ON
-  Otherwise:
-    catkin_make -DCMAKE_BUILD_TYPE=Releas
+      '''
+  - catkin_make -DCMAKE_BUILD_TYPE=Release -DCMAKE_SYSTEM_PROCESSOR="aarch64" -DBUILD_WITH_MARCH_NATIVE=True -DBUILD_VGICP_CUDA=ON
+- Otherwise:
+  - catkin_make -DCMAKE_BUILD_TYPE=Releas
