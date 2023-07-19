@@ -17,3 +17,6 @@
 	path = src/aarapsi_robot_pack
 	url = https://github.com/QVPR/aarapsi_robot_pack
 	branch = main
+[submodule "src/cpr_office_extension_gazebo"]
+	path = src/cpr_office_extension_gazebo
+	url = git@github.com:QVPR/cpr_office_extension_gazebo.git
