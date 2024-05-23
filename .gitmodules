@@ -20,3 +20,6 @@
 [submodule "src/cpr_office_extension_gazebo"]
 	path = src/cpr_office_extension_gazebo
 	url = git@github.com:QVPR/cpr_office_extension_gazebo.git
+[submodule "src/ds4_driver"]
+	path = src/ds4_driver
+	url = git@github.com:naoki-mizuno/ds4_driver.git
